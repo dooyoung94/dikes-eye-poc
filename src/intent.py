@@ -34,8 +34,9 @@ PURPOSE_RULES = {
 
 PREFERENCE_WORDS = [
     "조용", "분위기", "대화", "웨이팅", "예약", "주차", "친절", "가격", "가성비",
-    "맛", "배터리", "발열", "성능", "휴대", "무게", "착용", "착용감", "편안", "발볼", "사이즈",
-    "음질", "노이즈캔슬링", "화질", "내구", "불량", "AS", "연결", "디자인",
+    "안락함", "안락", "편안함", "편안", "아늑함", "아늑", "쾌적함", "쾌적", "좌석",
+    "맛", "배터리", "발열", "성능", "휴대", "무게", "착용", "착용감", "발볼", "사이즈",
+    "음질", "노이즈캔슬링", "화질", "내구", "불량", "AS", "연결", "디자인", "감성",
 ]
 
 QUESTION_PATTERNS = [
@@ -89,10 +90,16 @@ def _extract_time(text: str) -> str:
 
 def _extract_preferences(text: str) -> str:
     found = []
+    lowered = text.lower()
     for word in PREFERENCE_WORDS:
-        if word.lower() in text.lower():
+        if word.lower() in lowered:
             found.append(word)
-    return ", ".join(dict.fromkeys(found))
+    # 긴 표현을 먼저 보존하고, 포함관계인 짧은 표현은 제거한다.
+    unique = []
+    for word in sorted(dict.fromkeys(found), key=len, reverse=True):
+        if not any(word in kept for kept in unique):
+            unique.append(word)
+    return ", ".join(reversed(unique))
 
 
 def _detect_kind(text: str) -> str:
@@ -104,17 +111,14 @@ def _detect_kind(text: str) -> str:
 
 
 def _remove_preference_clause(text: str) -> str:
-    # "배터리랑 착용감이 중요해", "주차가 중요하고 조용했으면" 같은 후행 조건 제거.
     markers = ["중요해", "중요하고", "중요한데", "중요한", "신경써", "신경 쓰", "우선이야"]
     for marker in markers:
         idx = text.find(marker)
         if idx >= 0:
             left = text[:idx]
-            # marker 앞 마지막 문장/쉼표 단위부터 제거
             cut = max(left.rfind("?"), left.rfind("."), left.rfind(","))
             if cut >= 0:
                 return text[:cut]
-            # 문장 부호가 없으면 preference keyword가 시작되는 지점을 찾아 제거
             positions = [text.find(word) for word in PREFERENCE_WORDS if text.find(word) >= 0]
             if positions:
                 return text[:min(positions)]
@@ -168,6 +172,8 @@ def parse_intent(text: str) -> dict[str, Any]:
         confidence += 0.10
     if day or time:
         confidence += 0.10
+    if preference:
+        confidence += 0.05
     if any(h.lower() in original.lower() for h in (PRODUCT_HINTS if kind == "product" else RESTAURANT_HINTS)):
         confidence += 0.10
 
