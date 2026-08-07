@@ -1,351 +1,263 @@
 # Dike's Eye Architecture
 
-## 1. Product view
+## Product view
 
-Dike's Eye는 리뷰 요약기가 아니라 **선택 직전의 의사결정 Agent**입니다.
+Dike's Eye는 리뷰 요약기가 아니라 **Conditional Decision Agent**입니다.
+
+핵심 질문:
+
+> **“평균적으로 좋은가?”가 아니라 “내 조건에서 선택해도 되는가?”**
 
 ```mermaid
 flowchart TB
     Q[사용자 자연어 질문]
-    Q --> IP[Intent Parser]
-    IP --> T{Target Type}
+    Q --> LLM[LLM Condition Parser]
+    LLM --> S[Situation\n요일·시간·목적]
+    LLM --> C[Preference Conditions\naspect·direction·importance]
+    LLM --> T[Target]
 
-    T -->|Restaurant| RL[NAVER Local 확인]
-    T -->|Product| PC[제품명 확인]
+    T --> CONF[Target Confirmation]
+    CONF --> VE[Visible Evidence]
+    CONF --> HE[Hidden-side Evidence]
 
-    RL --> UC[User Context]
-    PC --> UC
+    VE --> N[Normalize]
+    N --> RFM[RFM Priority]
+    RFM --> CA[Condition Analysis]
+    CA --> RA[Rashomon]
+    CA --> RCA[Situational RCA]
 
-    UC --> EC[Evidence Collector]
-    EC --> VE[Visible Evidence]
-    EC --> HE[Hidden-side Evidence]
+    HE --> W[Wald]
 
-    VE --> NF[Normalize / Feature]
-    NF --> EDA[EDA]
-    EDA --> RFM[RFM Priority]
-    RFM --> RA[Rashomon]
-    RA --> RCA[RCA]
+    CA --> D[Dike Conditional Score]
+    RCA --> D
+    RA --> D
+    W --> D
 
-    HE --> WF[Wald Filter]
-    WF --> W[Wald Signals]
-
-    RFM --> DS[Dike Scoring]
-    RCA --> DS
-    W --> DS
-
-    DS --> DR[Decision Report]
-    DR --> UI[Simple Service UI]
-    DR -. optional .-> LLM[LLM Explanation]
+    D --> REP[Decision Report]
+    REP --> UI[Service UI]
+    REP -. optional .-> EX[LLM Explanation]
 ```
 
----
+## LLM boundary
 
-## 2. Why two Evidence channels?
+LLM은 **의미 해석**만 담당합니다.
 
-### Visible Evidence
+```text
+자연어
+"가격은 조금 비싸도 괜찮고 분위기는 중요해"
+        ↓
+LLM
+price_value / tolerate / 0.35
+noise_atmosphere / prefer / 0.90
+```
 
-일반 리뷰·후기처럼 이미 선택한 사용자의 경험을 중심으로 수집합니다.
+LLM이 하지 않는 것:
 
-목적:
+- Evidence 건수 계산
+- 긍정/부정 비율 계산
+- RCA lift 계산
+- Wald score 계산
+- Fit Score 계산
+- Verdict 변경
 
-- 무엇을 좋아했는가
-- 무엇을 싫어했는가
-- 어떤 Aspect에서 의견이 갈리는가
-- 사용자의 조건과 직접 맞는 Evidence는 무엇인가
+이 값들은 전부 deterministic engine이 계산합니다.
 
-### Hidden-side Evidence
+## Condition model
 
-일반 만족 리뷰에 덜 남을 수 있는 행동을 별도 검색합니다.
+### Preference Condition
 
-Restaurant:
+사용자가 중요하게 보는 축입니다.
 
-- 예약 실패
-- 웨이팅 포기
-- 주차 포기
-- 재방문 이탈
+```text
+raw
+aspect
+label
+direction = prefer | avoid | tolerate
+importance = 0.1 ~ 1.0
+search_terms[]
+```
 
-Product:
+Canonical Aspect 예시:
 
-- 반품 / 환불
-- 불량 / 고장
-- 재판매 / 처분
-- 후회 / 재구매 이탈
+```text
+price_value
+noise_atmosphere
+comfort
+wait_reservation
+service
+quality_performance
+battery
+audio_visual
+convenience_fit
+design_experience
+```
 
-이 채널을 분리하는 이유는 일반 리뷰와 이탈 Evidence를 하나의 감성점수로 섞으면 의미가 사라지기 때문입니다.
+### Situational Condition
 
----
+사용 상황입니다.
 
-## 3. Runtime pipeline
+```text
+date_or_day
+time
+purpose
+```
+
+상황조건은 조건 자체 평가를 대체하지 않고 **같은 조건이 특정 상황에서 달라지는지**를 비교하는 데 사용합니다.
+
+## Evidence model
+
+조건 Evidence는 두 층입니다.
+
+```text
+1. Aspect Evidence
+   해당 조건과 연결되는 전체 Evidence
+
+2. Direct Coverage
+   조건 전용 검색 또는 조건 표현이 직접 포함된 Evidence
+```
+
+예:
+
+```text
+가격·가성비 전체 Evidence 31건
+가격 전용 검색/직접 표현 12건
+```
+
+가격 조건 평가는 31건으로 계산합니다. 12건은 coverage 보강용입니다.
+
+이 규칙은 모든 조건에 동일하게 적용됩니다.
+
+## Runtime sequence
 
 ```mermaid
 sequenceDiagram
     participant U as User
     participant UI as Streamlit
-    participant I as Intent Parser
-    participant N as NAVER Search
+    participant L as LLM Parser
+    participant N as NAVER
     participant A as Analytics
     participant D as Dike Score
-    participant R as Report
-    participant L as Optional LLM
 
     U->>UI: 자연어 질문
-    UI->>I: parse_intent(question)
-    I-->>UI: target/kind/context
+    UI->>L: parse condition
+    L-->>UI: target + situation + conditions
+    U->>UI: 대상/조건 확인
 
-    alt Restaurant
-        UI->>N: Local Search
-        N-->>UI: 장소 후보
-        U->>UI: 대상 확인
-    else Product
-        U->>UI: 제품명 확인
-    end
-
-    U->>UI: 조건 확인 후 분석
     par Visible
-        UI->>N: Blog/Cafe primary search
+        UI->>N: 일반/장점/단점/조건 검색
     and Hidden
-        UI->>N: Hidden-side Blog/Cafe search
-    end
-
-    opt Evidence 부족
-        UI->>N: Web fallback
+        UI->>N: 포기/실패/반품/이탈 검색
     end
 
     N-->>A: Raw Evidence
-    A->>A: Normalize → EDA → RFM
-    A->>A: Rashomon → RCA
-    A->>A: Wald
+    A->>A: Normalize + RFM
+    A->>A: Condition Analysis
+    A->>A: Rashomon + Situational RCA + Wald
     A->>D: structured evidence
-    D-->>R: fit_score/confidence/verdict
-    R-->>UI: user-friendly decision report
-
-    opt 사용자가 AI 설명 요청
-        UI->>L: structured analysis only
-        L-->>UI: explanation text
-    end
+    D-->>UI: score + confidence + verdict
 ```
 
----
+## Condition Analysis
 
-## 4. Deterministic decision boundary
-
-LLM이 판단을 직접 생성하게 두지 않습니다.
+각 중요조건별로:
 
 ```text
-Evidence
-   ↓
-Features
-   ↓
-RFM Priority
-   ↓
-Conflict / RCA / Wald
-   ↓
-Deterministic Score
-   ↓
-Verdict
-   ↓
-Report
-   ↓
-Optional LLM Explanation
+total_count
+positive_count
+negative_count
+positive_rate
+negative_rate
+direct_count
+fit
+evidence_confidence
 ```
 
-LLM이 할 수 있는 것:
-
-- 이미 확정된 결과를 자연어로 설명
-- 구조화된 근거를 읽기 쉽게 표현
-
-LLM이 할 수 없는 것:
-
-- fit score 재계산
-- verdict 변경
-- confidence 변경
-- 근거에 없는 인과관계 생성
-
----
-
-## 5. Evidence priority
-
-Dike's Eye에서 RFM은 마케팅 RFM을 그대로 쓰는 것이 아니라 **Evidence 우선순위**로 재정의합니다.
+상황 Evidence가 충분하면 추가로:
 
 ```text
-R = Recency
-    최근 게시된 Evidence인가?
-
-F = Frequency
-    동일 Aspect가 반복되고 여러 Source에서 나타나는가?
-
-M = Match
-    사용자가 말한 목적·조건과 직접 연결되는가?
+situational_count
+situational_negative_rate
+situational_lift
 ```
 
-```text
-Priority = 0.35R + 0.25F + 0.40M
-```
+## Rashomon
 
-M의 비중을 가장 높게 둔 이유는 이 서비스가 전체 평균보다 **사용자별 의사결정**을 목적으로 하기 때문입니다.
+같은 Aspect에서 긍정/부정이 충분히 공존하면 Conflict로 봅니다.
 
----
+Rashomon은 감점 그 자체가 아니라 **의견이 갈리는 영역을 찾는 장치**입니다.
 
-## 6. Rashomon + RCA
-
-### Rashomon
-
-Aspect 단위로 긍정과 부정 Evidence가 동시에 충분히 존재할 때 Conflict로 판단합니다.
+## Situational RCA
 
 ```text
-Aspect
-├─ Positive Evidence
-└─ Negative Evidence
-        ↓
-Opinion Conflict
-```
-
-### RCA
-
-Conflict가 발견되면 본문에 명시된 Context를 기준으로 negative-rate 차이를 비교합니다.
-
-```text
-전체 Aspect Negative Rate
+전체 조건 Negative Rate
 vs
-특정 Context Negative Rate
+사용 상황 subset Negative Rate
         ↓
 Lift
 ```
 
-출력:
+이 값은 `observed_association`이며 인과관계를 의미하지 않습니다.
 
-- aspect
-- context
-- effect: worsens / improves
-- baseline negative rate
-- context negative rate
-- lift
-- supporting evidence
-- counter evidence
-- confidence
-- user_aligned
-- claim_level = observed_association
+## Wald
 
-중요: 이 결과는 **원인 확정이 아니라 관찰된 연관성**입니다.
+Visible 리뷰에 잘 남지 않는 신호를 별도로 수집합니다.
 
----
+Restaurant:
+- 예약 실패
+- 웨이팅 포기
+- 주차 포기
 
-## 7. Wald
+Product:
+- 반품/환불
+- 불량/고장
+- 재판매/후회
 
-Wald는 일반 리뷰만 보면 빠질 수 있는 Evidence를 찾습니다.
+Wald는 실제 실패율이 아니라 **hidden-side signal strength**입니다.
+
+## Scoring v4
 
 ```text
-Visible Reviews
-      ↓
-선택한/사용한 사람 중심
-
-Hidden-side Search
-      ↓
-포기 / 실패 / 반품 / 이탈
-```
-
-Wald의 `signal_score`는 실제 발생률이 아닙니다.
-
-```text
-Signal Strength
-= 반복된 hidden-side keyword
-+ source diversity
-```
-
-즉 “반품률 20%”라고 말하지 않고,
-
-> “반품·환불과 관련된 이탈 신호가 여러 Evidence에서 확인된다.”
-
-라고 표현합니다.
-
----
-
-## 8. Dike scoring
-
-개념적 구조:
-
-```text
-50 Neutral Base
- + overall weighted sentiment
- + context-matched sentiment
- - user-aligned RCA risk
- - Wald risk
+50 Neutral
++ overall sentiment
++ condition weighted fit
++ repeated positive strength
+- situational risk
+- Wald risk
         ↓
-Raw Fit
+confidence shrink
         ↓
-Confidence 기반 Neutral Shrink
-        ↓
-Evidence / Risk Score Caps
-        ↓
-Fit Score + Verdict
+score / verdict
 ```
 
-Evidence가 부족하면 50점 방향으로 돌아갑니다.
-
-따라서 Dike's Eye에서 높은 점수는 단순 긍정리뷰가 많다는 뜻이 아니라:
-
-1. Evidence가 충분하고
-2. Source가 어느 정도 다양하고
-3. 최근 Evidence가 존재하고
-4. 사용자의 조건과 맞고
-5. 사용자 조건에 정렬된 위험이 낮고
-6. Hidden-side severe signal이 낮다는 뜻입니다.
-
----
-
-## 9. API efficiency
-
-### Before
+Condition contribution:
 
 ```text
-Visible 4 queries × 3 endpoints = 12
-Hidden  6 queries × 3 endpoints = 18
-----------------------------------
-최대 약 30 calls / target
+Condition Fit
+× Importance
+× Evidence Confidence
 ```
 
-### Current
+`tolerate`는 의도적으로 낮은 비중으로 반영합니다.
+
+## Extension
+
+새로운 도메인 확장 시 우선 변경되는 부분:
 
 ```text
-Visible 2 queries × Blog/Cafe = 4
-Hidden  2 queries × Blog/Cafe = 4
----------------------------------
-기본 8 calls / target
+condition_taxonomy.py
+NAVER query plan
+Wald signal rules
 ```
 
-Evidence가 부족할 때만 Web 검색을 fallback으로 사용합니다.
-
-추가 전략:
-
-- ThreadPoolExecutor 병렬 호출
-- LRU cache
-- URL/title dedupe
-- 최대 Evidence 제한
-- restaurant / product query plan 분리
-
----
-
-## 10. Extension points
-
-다음 도메인으로 확장할 때 바뀌는 부분은 주로 세 군데입니다.
+공통 재사용:
 
 ```text
-Intent Rules
-Evidence Query Plan
-Aspect / Wald Rules
-```
-
-공통으로 재사용되는 부분:
-
-```text
+LLM condition parsing
 Normalize
-EDA
 RFM
+Condition Analysis
 Rashomon
-RCA
+Situational RCA
 Scoring
 Reporting
-LLM Explanation
 ```
-
-따라서 Hotel, Travel, SaaS, Education 등으로 확장할 때 전체 Agent를 다시 만들 필요가 없습니다.
