@@ -1,297 +1,422 @@
-# ⚖️ Dike's Eye
+# ⚖️ Dike's Eye · Conditional Decision Agent
 
-> **평균 리뷰가 아니라, 내 조건에서의 선택을 돕는 Evidence 기반 Decision Agent**
+> **평균 평점이 아니라, 내 조건에서 선택해도 되는지 판단합니다.**
 
 **Live App:** https://dikes-eye-poc.streamlit.app/
 
-리뷰 서비스는 보통 “사람들이 얼마나 좋아했는가”를 보여줍니다.  
-하지만 실제 결정에서 더 중요한 질문은 다릅니다.
+Dike's Eye는 리뷰를 요약하는 서비스가 아닙니다. 사용자가 자연어로 말한 **중요조건과 사용 상황**을 먼저 해석하고, 각 조건에 연결되는 Evidence를 따로 계산해 **조건부 의사결정**을 돕는 Agent입니다.
 
-- 토요일 저녁 소개팅인데 **이 식당이 나에게 괜찮은가?**
-- 출퇴근용으로 쓰려는데 **이 제품의 단점이 내 사용조건에서 문제가 되는가?**
-- 별점은 높은데 왜 어떤 사람은 강하게 싫어하는가?
-- 애초에 방문하지 못했거나, 반품하고 떠난 사람의 경험은 어디에 있는가?
+예를 들어:
 
-Dike's Eye는 리뷰를 단순 요약하지 않습니다.  
-**의견이 갈리는 이유(Rashomon)**와 **리뷰에 잘 남지 않는 이탈 신호(Wald)**를 함께 보고, 사용자의 상황과 맞는 Evidence에 더 높은 가중치를 주어 **조건 적합도와 판단 근거**를 제공합니다.
+```text
+가격은 조금 비싸도 괜찮고, 아늑하고 분위기 좋은 곳이 중요해.
+웨이팅은 싫어.
+```
+
+Dike는 이를 다음처럼 구조화합니다.
+
+```text
+가격·가성비     tolerate · 중요도 낮음
+안락함·편안함   prefer   · 중요도 높음
+분위기·소음     prefer   · 중요도 높음
+웨이팅·예약     avoid    · 중요도 높음
+```
+
+그 다음 각 조건을 **독립적으로 분석**합니다.
+
+```text
+가격·가성비
+- 관련 의견 31건
+- 긍정 23건 / 부정 8건
+
+안락함·편안함
+- 관련 의견 14건
+- 긍정 10건 / 부정 4건
+
+분위기·소음
+- 관련 의견 19건
+- 긍정 12건 / 부정 7건
+```
+
+요일·시간·목적이 있다면 같은 조건이 그 상황에서 어떻게 달라지는지도 별도로 비교합니다.
 
 ---
 
-## 1. 핵심 가치
+## 1. 제품 정의
+
+Dike's Eye의 핵심 질문은 하나입니다.
+
+> **“사람들이 좋아하는가?”가 아니라 “내 조건에서는 선택해도 되는가?”**
+
+이를 위해 세 가지 관점을 결합합니다.
 
 ### 🎭 Rashomon — 서로 다른 진실
 
-같은 식당이나 제품인데도 평가는 갈립니다.
+같은 대상에서도 평가가 갈리는 Aspect를 찾습니다.
 
-- 평일에는 조용하지만 주말 저녁에는 시끄럽다.
-- 일반 사용에서는 만족도가 높지만 장시간 사용에서는 발열이 문제다.
-- 누군가는 좋은 가성비라고 느끼지만 다른 사람에게는 핵심 기능이 부족하다.
+```text
+분위기·소음
+긍정 12건 / 부정 7건
+```
 
-Dike's Eye는 단순 평균 대신 **어떤 조건에서 평가가 갈리는지**를 찾습니다.
+평균으로 뭉개지 않고 **왜 의견이 나뉘는지**를 보여줍니다.
 
 ### 🕳️ Wald — 사라진 진실
 
-리뷰에는 선택편향이 존재합니다.
+일반 리뷰에 잘 남지 않는 이탈 Evidence를 별도로 찾습니다.
 
-- 예약에 실패한 사람은 방문 리뷰를 남기지 못할 수 있습니다.
-- 긴 웨이팅을 포기한 사람은 음식 리뷰에 포함되지 않을 수 있습니다.
-- 제품을 반품·환불하거나 중고로 처분한 사용자는 만족 후기 집단과 다른 행동을 보일 수 있습니다.
+Restaurant:
+- 예약 실패
+- 웨이팅 포기
+- 주차 포기
+- 재방문 이탈
 
-Dike's Eye는 이런 **선택 이전/이탈 Evidence를 별도 검색**합니다.  
-단, 이를 실제 실패율·반품률로 해석하지 않고 **놓치기 쉬운 위험 신호**로만 사용합니다.
+Product:
+- 반품 / 환불
+- 불량 / 고장
+- 재판매 / 처분
+- 후회 / 이탈
 
-### ⚖️ Dike — 공정한 판단
+이 값은 실제 실패율이 아니라 **리뷰만 보면 놓칠 수 있는 위험 신호의 검색 건수**입니다.
 
-최종적으로 사용자의 목적·시간·선호 조건과 Evidence를 결합해 판단합니다.
+### ⚖️ Dike — Conditional Decision
 
-> **“많이 좋아하는가?”가 아니라 “내가 선택해도 되는가?”**
+사용자가 말한 조건을 각각 계산하고 중요도까지 반영합니다.
+
+```text
+조건별 Fit
+× 사용자 중요도
+× Evidence 신뢰도
++ 전체 긍정/부정 균형
+- 상황별 위험
+- Wald 위험
+= Dike Fit Score
+```
 
 ---
 
-## 2. 실제 사용 예시
+## 2. LLM과 계산 엔진의 역할 분리
 
-### 식당
+Dike's Eye는 LLM에게 최종 판단을 맡기지 않습니다.
+
+### LLM이 하는 일
+
+- 자연어 질문 해석
+- 대상명 추출
+- 중요조건 추출
+- 조건 방향 해석
+  - `prefer`
+  - `avoid`
+  - `tolerate`
+- 중요도 추정
+- 검색어 확장
+- 최종 결과 자연어 설명
+
+### Deterministic Engine이 하는 일
+
+- Evidence 건수
+- 긍정 / 부정 분류
+- 조건별 비율
+- RFM Priority
+- Rashomon Conflict
+- 상황별 negative-rate 차이
+- Wald signal count
+- Fit Score
+- Confidence
+- Verdict
+
+즉:
 
 ```text
-토요일 7시 소개팅인데 성수 어니언 어때?
+LLM = 조건 통역관
+Analytics = Evidence 계산기
+Dike Score = 판단 엔진
 ```
-
-Dike's Eye가 자동으로 해석합니다.
-
-```text
-대상      : 성수 어니언
-요일      : 토요일
-시간      : 19:00
-목적      : 소개팅
-중요 조건 : 분위기 / 대화 / 예약 / 웨이팅
-```
-
-### 상품
-
-```text
-출퇴근용으로 소니 WH-1000XM6 사도 될까? 배터리랑 착용감이 중요해
-```
-
-```text
-대상      : 소니 WH-1000XM6
-목적      : 출퇴근
-중요 조건 : 배터리 / 착용감
-```
-
-사용자는 복잡한 분석 과정을 볼 필요 없이 다음만 먼저 확인합니다.
-
-```text
-🟡 조건부 추천 · 64/100
-판단 신뢰도 71%
-
-왜 이렇게 판단했나요?
-- 착용감 평가는 사용자에 따라 크게 갈립니다.
-- 장시간 사용 맥락에서 부정 평가가 더 자주 관찰됩니다.
-
-무엇을 조심해야 하나요?
-- 반품·불량 관련 이탈 신호가 일부 검색됩니다.
-
-그래서 어떻게 결정하면 되나요?
-- 출퇴근 시간만큼 실제 착용 가능한지 단점 후기를 우선 확인하세요.
-```
-
-> 점수는 성공확률이 아닙니다. **현재 수집된 Evidence 기준의 조건 적합도**입니다.
 
 ---
 
-## 3. 서비스 아키텍처
+## 3. Conditional 구조
+
+조건은 두 종류로 분리합니다.
+
+### Preference Condition — 무엇이 중요한가?
+
+예:
+
+```text
+가격
+분위기
+안락함
+맛
+서비스
+웨이팅
+주차
+배터리
+착용감
+성능
+```
+
+각 조건은 Canonical Aspect로 정규화됩니다.
+
+```text
+가격/가성비/예산        → price_value
+분위기/조용함/감성      → noise_atmosphere
+안락함/편안함/아늑함    → comfort
+웨이팅/예약              → wait_reservation
+친절/응대                → service
+맛/품질/성능             → quality_performance
+배터리/충전              → battery
+음질/화질                → audio_visual
+주차/휴대성/착용감       → convenience_fit
+디자인/마감              → design_experience
+```
+
+### Situational Condition — 언제/어떤 상황인가?
+
+예:
+
+```text
+토요일
+19:00
+소개팅
+출퇴근
+업무
+여행
+```
+
+이 값들은 조건 자체 평가를 대체하지 않습니다. 대신 **같은 조건이 내 상황에서 달라지는지**를 비교합니다.
+
+```text
+전체 분위기 부정률 32%
+vs
+토요일 19시 소개팅 Evidence 부정률 47%
+→ +15%p
+```
+
+---
+
+## 4. Evidence 원칙
+
+중요한 원칙:
+
+> **조건 전용 검색 결과가 적다고 해서 해당 조건 Evidence가 없는 것은 아닙니다.**
+
+예를 들어 `가격`을 중요조건으로 말했고 전체 Evidence에서 가격·가성비 관련 의견이 31건 잡혔다면, 그 31건이 가격 조건의 기본 Evidence입니다.
+
+```text
+가격·가성비 전체 Evidence = 31건
+가격 전용 검색 Evidence = 12건
+```
+
+12건은 Coverage를 높이는 추가 근거일 뿐, 가격 조건 존재 여부를 결정하지 않습니다.
+
+이 원칙은 가격뿐 아니라 **안락함, 분위기, 웨이팅, 서비스, 배터리 등 모든 조건에 동일하게 적용**됩니다.
+
+---
+
+## 5. 전체 아키텍처
 
 ```mermaid
 flowchart LR
-    U[사용자 자연어 질문] --> I[Intent Parser]
+    U[사용자 자연어 질문] --> LLM[LLM Condition Parser]
+    LLM --> T[Target + Situation + Conditions]
 
-    I -->|식당| L[NAVER Local\n대상 확인]
-    I -->|상품| P[제품명 확인]
+    T --> C[Target Confirmation]
+    C --> V[Visible Evidence]
+    C --> H[Hidden-side Evidence]
 
-    L --> C[User Context]
-    P --> C
+    V --> N[Normalize]
+    N --> RFM[RFM Priority]
+    RFM --> CA[Condition Analysis]
+    CA --> RA[Rashomon]
+    CA --> RCA[Situational RCA]
 
-    C --> V[Visible Evidence\nBlog / Cafe / Web]
-    C --> H[Hidden-side Evidence\n포기 / 실패 / 반품 / 이탈]
+    H --> W[Wald]
 
-    V --> N[Normalize & Feature Extraction]
-    N --> E[EDA]
-    E --> R[RFM Evidence Priority]
-    R --> RA[Rashomon Conflict]
-    RA --> RCA[RCA Association Analysis]
-
-    H --> W[Wald Missing-side Signals]
-
-    RCA --> D[Dike Deterministic Scoring]
+    CA --> D[Dike Conditional Score]
+    RCA --> D
+    RA --> D
     W --> D
-    R --> D
 
     D --> REP[Decision Report]
-    REP --> O[Optional LLM Explanation]
+    REP --> X[Optional LLM Explanation]
 ```
-
-### 설계 원칙
-
-1. **LLM은 점수를 계산하지 않습니다.**  
-   적합도·신뢰도·추천 여부는 deterministic scoring engine이 계산합니다.
-
-2. **RCA는 인과관계를 주장하지 않습니다.**  
-   조건별 negative-rate 차이를 `observed_association` 수준으로만 표현합니다.
-
-3. **Wald는 실제 실패율을 계산하지 않습니다.**  
-   예약 실패·반품·이탈 등 리뷰에 덜 남는 신호를 별도 Evidence로 보여줍니다.
-
-4. **publication date를 방문 시점으로 사용하지 않습니다.**  
-   요일/시간 Context는 본문에 명시된 경우에만 Evidence Context로 사용합니다.
 
 ---
 
-## 4. 분석 파이프라인
+## 6. Runtime Pipeline
 
 ```text
 Natural Language Question
         ↓
-Intent Parsing
-- 대상 유형: restaurant / product
+LLM Condition Parser
 - target
-- 날짜·요일 / 시간
-- 목적
-- 중요 조건
+- kind
+- day/time/purpose
+- conditions[]
+  - raw
+  - aspect
+  - direction
+  - importance
         ↓
 Target Confirmation
         ↓
-Evidence Collection
-├─ Visible: 실제 후기·리뷰성 문서
-└─ Hidden: 포기·실패·반품·환불·재판매·이탈
+NAVER Evidence Collection
+├─ general reviews
+├─ positive / negative views
+├─ condition queries
+└─ hidden-side queries
         ↓
 Normalize
-- Aspect
-- Context
-- Sentiment
-- Publication Recency
+- aspect
+- sentiment
+- recency
+- condition_direct_aspects
+- situational_aligned
         ↓
-EDA
-        ↓
-RFM Evidence Priority
+RFM
 R = Recency
 F = Frequency / Source Diversity
-M = User Context Match
-priority = 0.35R + 0.25F + 0.40M
+M = User Match
         ↓
-Rashomon
-- Opinion Conflict Detection
+Condition Analysis
+- 전체 조건 Evidence
+- 긍정/부정 건수
+- direct coverage
+- condition fit
         ↓
-RCA
-- Context-wise association
-- Supporting / Counter Evidence
-- User-aligned Risk
+Situational RCA
+- 전체 조건 negative-rate
+vs
+- 내 상황 subset negative-rate
         ↓
-Wald
-- Missing-side / Exit Signals
+Rashomon + Wald
         ↓
-Dike Score
-- Fit Score
-- Confidence
-- Verdict
+Dike Conditional Score
         ↓
-User-friendly Decision Report
+Decision Report
 ```
 
 ---
 
-## 5. 점수를 쉽게 높이지 않는 이유
+## 7. Scoring
 
-Dike's Eye는 Evidence가 적을수록 강한 추천을 피합니다.
+현재 정책: `conditional-v4`
+
+개념적으로:
 
 ```text
-Raw Fit
-   ↓
-Evidence Quality / Confidence
-   ↓
-50점(중립) 방향으로 수축
-   ↓
-Evidence 부족 / 낮은 신뢰도 / 높은 위험에 Score Cap 적용
+50 Neutral
++ 전체 Evidence sentiment
++ 조건별 weighted fit
++ 반복 긍정 strength
+- 내 상황에서 증가한 risk
+- Wald risk
+        ↓
+Confidence 기반 shrink
+        ↓
+Fit Score / Verdict
 ```
 
-현재 정책 예시:
-
-- Evidence가 너무 적으면 높은 점수 제한
-- 판단 신뢰도가 낮으면 강한 추천 제한
-- 사용자 조건과 직접 맞물리는 RCA 위험이 높으면 점수 제한
-- Wald severe signal이 높으면 점수 제한
-- `GO`는 충분한 Evidence + 높은 신뢰도 + 낮은 위험을 동시에 만족해야 함
-
-따라서 `70점 = 그냥 리뷰가 좋은 제품/식당`이 아닙니다.  
-**“내 조건에서도 Evidence가 충분하고, 반복되는 위험 신호가 낮다”**는 조건을 통과해야 합니다.
-
----
-
-## 6. NAVER 호출 최적화
-
-초기 POC는 검색어 × Blog/Cafe/Web 조합으로 최대 수십 회 API를 호출했습니다.
-
-현재 구조는 다음처럼 줄였습니다.
+조건별 Fit은 다음 요소를 반영합니다.
 
 ```text
-Visible Evidence
-2 Queries × Blog/Cafe = 4 calls
-
-Hidden Evidence
-2 Queries × Blog/Cafe = 4 calls
-
-총 기본 8 calls
-        ↓
-Evidence가 부족한 경우에만 Web fallback
+Condition Fit
+× Importance
+× Evidence Confidence
 ```
 
-추가 최적화:
+`tolerate` 조건은 가중치를 낮게 적용합니다.
 
-- Blog/Cafe 병렬 조회
-- 동일 query 결과 memory cache
-- URL/title 기반 deduplication
-- 식당/상품별 query plan 분리
-- 최대 Evidence 수 제한
+예:
+
+```text
+"가격은 좀 비싸도 괜찮아"
+→ price_value
+→ tolerate
+→ importance 낮음
+```
+
+반대로:
+
+```text
+"웨이팅은 정말 싫어"
+→ wait_reservation
+→ avoid
+→ importance 높음
+```
 
 ---
 
-## 7. 프로젝트 구조
+## 8. 현재 UI 목표
+
+사용자는 분석 용어보다 먼저 자신의 조건이 제대로 반영됐는지 확인해야 합니다.
+
+```text
+Dike's Conditional View
+조건부 추천 · 68/100
+
+이번 판단 조건
+[가격 · 어느 정도 허용]
+[안락함 · 중요]
+[분위기 · 중요]
+[웨이팅 · 회피]
+
+내가 중요하게 본 조건별 판단
+
+가격·가성비
+긍정 23 / 31건
+조건 적합 74/100
+
+안락함·편안함
+긍정 10 / 14건
+조건 적합 71/100
+
+분위기·소음
+긍정 12 / 19건
+조건 적합 63/100
+```
+
+---
+
+## 9. 프로젝트 구조
 
 ```text
 dikes-eye-poc/
-├─ streamlit_app.py          # 실제 사용자 UI / orchestration
+├─ streamlit_app.py
 ├─ requirements.txt
 ├─ README.md
 ├─ docs/
 │  ├─ ARCHITECTURE.md
 │  └─ DECISION_REPORT.md
 └─ src/
-   ├─ intent.py              # 자연어 질문 → 구조화 조건
-   ├─ naver_client.py        # Local / Evidence 수집 + cache/parallel
-   ├─ normalize.py           # Aspect / Context / Sentiment / Recency
-   ├─ eda.py                 # Evidence 분포 분석
-   ├─ rfm.py                 # R/F/M Evidence Priority
-   ├─ rashomon.py            # 의견 충돌 구조화
-   ├─ rca.py                 # 조건별 association 분석
-   ├─ wald.py                # Missing-side / Exit Signal
-   ├─ scoring.py             # deterministic Dike Score
-   ├─ reporting.py           # 사용자용 결정 리포트
-   └─ llm_explain.py         # 선택적 LLM 설명 레이어
+   ├─ condition_taxonomy.py   # Canonical Condition 정의
+   ├─ condition_analysis.py   # 조건별 deterministic 분석
+   ├─ intent.py               # LLM + fallback Condition Parser
+   ├─ naver_client.py         # NAVER Evidence 수집
+   ├─ normalize.py            # Evidence 정규화
+   ├─ eda.py
+   ├─ rfm.py
+   ├─ rashomon.py
+   ├─ rca.py                  # Situational RCA
+   ├─ wald.py
+   ├─ scoring.py              # conditional-v4
+   ├─ reporting.py
+   └─ llm_explain.py
 ```
 
 ---
 
-## 8. 로컬 실행
+## 10. 실행
 
 Python 3.12 권장.
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate      # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
-
-### Streamlit Secrets
 
 `.streamlit/secrets.toml`
 
@@ -299,61 +424,30 @@ streamlit run streamlit_app.py
 NAVER_API_HUB_CLIENT_ID = "..."
 NAVER_API_HUB_CLIENT_SECRET = "..."
 
-# 선택사항: 설명 레이어
 OPENAI_API_KEY = "..."
 OPENAI_MODEL = "gpt-5-mini"
 ```
 
-OpenAI Key가 없어도 핵심 분석과 Decision Report는 동작합니다.
+OpenAI Key가 없으면 규칙 기반 fallback parser로 동작하며, 핵심 Evidence 계산과 점수는 계속 사용할 수 있습니다.
 
 ---
 
-## 9. 현재 지원 범위
+## 핵심 원칙
 
-### Restaurant
+Dike's Eye는 다음을 말하지 않습니다.
 
-- NAVER Local 대상 확인
-- 분위기 / 소음
-- 웨이팅 / 예약
-- 서비스
-- 가격 / 가성비
-- 음식 품질
-- 주차 / 접근성
-- 예약 실패 / 웨이팅 포기 / 주차 포기 / 재방문 이탈
+```text
+이 식당에 가면 75% 만족한다.
+이 제품의 반품률은 12%다.
+주말 방문이 불만의 원인이다.
+```
 
-### Product
+대신 다음을 말합니다.
 
-- 자연어 제품명 확인
-- 성능 / 품질
-- 배터리 / 발열
-- 휴대성 / 무게
-- 착용감 / 사이즈
-- 음질 / 화질
-- 디자인 / 사용경험
-- 가격 / 가성비
-- 반품 / 환불 / 불량 / 고장 / 재판매 / 후회 신호
+```text
+당신이 중요하게 본 분위기 관련 의견은 19건이고, 긍정 12건 / 부정 7건입니다.
+토요일 저녁 관련 Evidence에서는 같은 분위기 항목의 부정 비율이 전체보다 15%p 높았습니다.
+예약 실패 신호는 4건 검색됐지만, 이는 실제 예약 실패율을 뜻하지 않습니다.
+```
 
----
-
-## 10. Dike's Eye가 하지 않는 것
-
-Dike's Eye는 다음을 주장하지 않습니다.
-
-- “이 식당에 가면 75% 확률로 만족한다.”
-- “이 제품의 실제 반품률은 12%다.”
-- “주말 방문이 불만의 원인이다.”
-
-대신 다음처럼 말합니다.
-
-- “현재 수집된 Evidence에서 주말 저녁에 부정 평가가 더 자주 관찰됩니다.”
-- “반품·환불 관련 신호가 일반 리뷰 밖에서도 검색됩니다.”
-- “당신이 중요하게 보는 조건과 이 위험이 직접 겹칩니다.”
-
-**Dike's Eye의 목적은 미래를 단정하는 것이 아니라, 선택 전에 놓치기 쉬운 Evidence를 공정하게 보여주는 것입니다.**
-
----
-
-## Documentation
-
-- [Architecture](docs/ARCHITECTURE.md)
-- [Decision Report Design](docs/DECISION_REPORT.md)
+**Dike's Eye의 목적은 미래를 단정하는 것이 아니라, 사용자의 조건에 따라 Evidence를 다시 정렬해 선택을 돕는 것입니다.**
