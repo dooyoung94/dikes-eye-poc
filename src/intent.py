@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from src.condition_taxonomy import CONDITION_RULES, extract_preference_terms
+
 
 PRODUCT_HINTS = [
     "살까", "사도", "구매", "제품", "상품", "노트북", "이어폰", "헤드폰", "스마트폰",
@@ -32,12 +34,11 @@ PURPOSE_RULES = {
     "영상/사진": ["영상 편집", "영상편집", "사진 편집", "사진촬영", "촬영용"],
 }
 
-PREFERENCE_WORDS = [
-    "조용", "분위기", "대화", "웨이팅", "예약", "주차", "친절", "가격", "가성비",
-    "안락함", "안락", "편안함", "편안", "아늑함", "아늑", "쾌적함", "쾌적", "좌석",
-    "맛", "배터리", "발열", "성능", "휴대", "무게", "착용", "착용감", "발볼", "사이즈",
-    "음질", "노이즈캔슬링", "화질", "내구", "불량", "AS", "연결", "디자인", "감성",
-]
+PREFERENCE_WORDS = list(dict.fromkeys(
+    alias
+    for rule in CONDITION_RULES.values()
+    for alias in rule.get("aliases", [])
+))
 
 QUESTION_PATTERNS = [
     r"\b사도\s*(?:될까|돼|되나|괜찮을까)\b.*$",
@@ -89,17 +90,7 @@ def _extract_time(text: str) -> str:
 
 
 def _extract_preferences(text: str) -> str:
-    found = []
-    lowered = text.lower()
-    for word in PREFERENCE_WORDS:
-        if word.lower() in lowered:
-            found.append(word)
-    # 긴 표현을 먼저 보존하고, 포함관계인 짧은 표현은 제거한다.
-    unique = []
-    for word in sorted(dict.fromkeys(found), key=len, reverse=True):
-        if not any(word in kept for kept in unique):
-            unique.append(word)
-    return ", ".join(reversed(unique))
+    return ", ".join(extract_preference_terms(text, limit=6))
 
 
 def _detect_kind(text: str) -> str:
@@ -111,7 +102,7 @@ def _detect_kind(text: str) -> str:
 
 
 def _remove_preference_clause(text: str) -> str:
-    markers = ["중요해", "중요하고", "중요한데", "중요한", "신경써", "신경 쓰", "우선이야"]
+    markers = ["중요해", "중요하고", "중요한데", "중요한", "신경써", "신경 쓰", "우선이야", "중요합니다"]
     for marker in markers:
         idx = text.find(marker)
         if idx >= 0:
