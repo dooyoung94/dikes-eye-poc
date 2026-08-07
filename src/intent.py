@@ -1,0 +1,156 @@
+from __future__ import annotations
+
+import re
+from typing import Any
+
+
+PRODUCT_HINTS = [
+    "살까", "사도", "구매", "제품", "상품", "노트북", "이어폰", "헤드폰", "스마트폰",
+    "폰", "태블릿", "모니터", "키보드", "마우스", "신발", "러닝화", "운동화", "가방",
+    "카메라", "렌즈", "청소기", "세탁기", "건조기", "TV", "티비", "화장품", "선크림",
+    "향수", "의자", "매트리스", "배터리", "충전기",
+]
+
+RESTAURANT_HINTS = [
+    "식당", "맛집", "카페", "레스토랑", "다이닝", "술집", "바", "브런치", "밥집",
+    "소개팅", "데이트", "회식", "모임", "예약", "웨이팅",
+]
+
+PURPOSE_RULES = {
+    "소개팅": ["소개팅"],
+    "데이트": ["데이트"],
+    "친구 모임": ["친구 모임", "친구들이랑", "친구랑", "모임"],
+    "가족": ["가족", "부모님", "아이랑", "아이와"],
+    "회식": ["회식"],
+    "업무 미팅": ["업무 미팅", "미팅", "회의"],
+    "혼밥": ["혼밥", "혼자"],
+    "출퇴근": ["출퇴근", "통근"],
+    "업무": ["업무용", "사무용", "회사에서", "업무"],
+    "게임": ["게임용", "게이밍", "게임"],
+    "여행": ["여행용", "여행"],
+    "운동": ["운동용", "러닝", "헬스", "운동"],
+    "영상/사진": ["영상 편집", "영상편집", "사진 편집", "사진촬영", "촬영용"],
+}
+
+PREFERENCE_WORDS = [
+    "조용", "분위기", "대화", "웨이팅", "예약", "주차", "친절", "가격", "가성비",
+    "맛", "배터리", "발열", "성능", "휴대", "무게", "착용", "편안", "발볼", "사이즈",
+    "음질", "노이즈캔슬링", "화질", "내구", "불량", "AS", "연결", "디자인",
+]
+
+QUESTION_ENDINGS = [
+    "어때", "어때?", "괜찮아", "괜찮을까", "좋아", "좋을까", "추천해줘", "추천해",
+    "살까", "사도 돼", "사도돼", "가도 돼", "가도돼", "어떤가", "어떤가요",
+]
+
+
+def _first_purpose(text: str) -> str:
+    for label, words in PURPOSE_RULES.items():
+        if any(word in text for word in words):
+            return label
+    return ""
+
+
+def _extract_day(text: str) -> str:
+    patterns = [
+        r"(?:이번\s*)?(월요일|화요일|수요일|목요일|금요일|토요일|일요일|평일|주말)",
+        r"(오늘|내일|모레)",
+        r"(\d{1,2})\s*월\s*(\d{1,2})\s*일",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return match.group(0).strip()
+    return ""
+
+
+def _extract_time(text: str) -> str:
+    match = re.search(r"(?:(오전|오후)\s*)?(\d{1,2})(?::(\d{2}))?\s*시", text)
+    if match:
+        ampm, hour_raw, minute = match.groups()
+        hour = int(hour_raw)
+        if ampm == "오후" and hour < 12:
+            hour += 12
+        if ampm == "오전" and hour == 12:
+            hour = 0
+        return f"{hour:02d}:{minute or '00'}"
+
+    match = re.search(r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)", text)
+    if match:
+        return f"{int(match.group(1)):02d}:{match.group(2)}"
+    return ""
+
+
+def _extract_preferences(text: str) -> str:
+    found = []
+    for word in PREFERENCE_WORDS:
+        if word.lower() in text.lower():
+            found.append(word)
+    return ", ".join(dict.fromkeys(found))
+
+
+def _detect_kind(text: str) -> str:
+    product_score = sum(1 for hint in PRODUCT_HINTS if hint.lower() in text.lower())
+    restaurant_score = sum(1 for hint in RESTAURANT_HINTS if hint in text)
+    if product_score > restaurant_score:
+        return "product"
+    return "restaurant"
+
+
+def _strip_context(text: str, *, kind: str, day: str, time: str, purpose: str) -> str:
+    target = text.strip()
+    if day:
+        target = target.replace(day, " ")
+
+    # 원문 시간 표현 제거
+    target = re.sub(r"(?:(?:오전|오후)\s*)?\d{1,2}(?::\d{2})?\s*시", " ", target)
+    target = re.sub(r"(?<!\d)(?:[01]?\d|2[0-3]):[0-5]\d(?!\d)", " ", target)
+
+    if purpose:
+        for word in PURPOSE_RULES.get(purpose, []):
+            target = target.replace(word, " ")
+
+    for ending in QUESTION_ENDINGS:
+        target = target.replace(ending, " ")
+
+    cleanup = [
+        "인데", "으로", "로", "에서", "기준", "괜찮은지", "알려줘", "좀", "나한테",
+    ]
+    if kind == "product":
+        cleanup += ["구매", "제품", "상품"]
+    for token in cleanup:
+        target = target.replace(token, " ")
+
+    target = re.sub(r"\s+", " ", target).strip(" ?!,.")
+    return target or text.strip()
+
+
+def parse_intent(text: str) -> dict[str, Any]:
+    original = re.sub(r"\s+", " ", str(text or "")).strip()
+    kind = _detect_kind(original)
+    day = _extract_day(original)
+    time = _extract_time(original)
+    purpose = _first_purpose(original)
+    preference = _extract_preferences(original)
+    target = _strip_context(original, kind=kind, day=day, time=time, purpose=purpose)
+
+    confidence = 0.55
+    if target and target != original:
+        confidence += 0.15
+    if purpose:
+        confidence += 0.10
+    if day or time:
+        confidence += 0.10
+    if any(h.lower() in original.lower() for h in (PRODUCT_HINTS if kind == "product" else RESTAURANT_HINTS)):
+        confidence += 0.10
+
+    return {
+        "kind": kind,
+        "target": target,
+        "original": original,
+        "date_or_day": day,
+        "time": time,
+        "purpose": purpose,
+        "preference": preference,
+        "parse_confidence": round(min(0.95, confidence), 2),
+    }
