@@ -3,10 +3,14 @@ from __future__ import annotations
 from typing import Any
 
 
-def _weighted_sentiment(rows: list[dict[str, Any]], *, context_only: bool = False) -> float:
+def _weighted_sentiment(
+    rows: list[dict[str, Any]],
+    *,
+    context_only: bool = False,
+) -> float:
     selected = [
         row for row in rows
-        if not context_only or float(row.get("M", 0.0)) >= 0.20
+        if not context_only or bool(row.get("context_aligned"))
     ]
     if not selected:
         return 0.0
@@ -15,18 +19,20 @@ def _weighted_sentiment(rows: list[dict[str, Any]], *, context_only: bool = Fals
     denominator = 0.0
     for row in selected:
         weight = max(0.05, float(row.get("priority", 0.0)))
+        if context_only and row.get("preference_aligned"):
+            weight *= 1.15
         numerator += int(row.get("sentiment", 0)) * weight
         denominator += weight
 
-    return max(-1.0, min(1.0, numerator / denominator if denominator else 0.0))
+    return max(
+        -1.0,
+        min(1.0, numerator / denominator if denominator else 0.0),
+    )
 
 
-def _positive_strength(eda: dict[str, Any]) -> tuple[float, list[dict[str, Any]]]:
-    """반복적으로 긍정 평가가 우세한 aspect를 0~1 strength로 계산한다.
-
-    단순 긍정 건수만 보지 않고 의견 수와 긍정 비율을 함께 본다.
-    표본이 3건 미만인 aspect는 strength에 사용하지 않는다.
-    """
+def _positive_strength(
+    eda: dict[str, Any],
+) -> tuple[float, list[dict[str, Any]]]:
     strengths: list[dict[str, Any]] = []
     for aspect, counts in eda.get("aspect_sentiment", {}).items():
         positive = int(counts.get("1", 0))
@@ -47,7 +53,10 @@ def _positive_strength(eda: dict[str, Any]) -> tuple[float, list[dict[str, Any]]
             "strength": round(strength, 4),
         })
 
-    strengths.sort(key=lambda x: (x["strength"], x["opinion_count"]), reverse=True)
+    strengths.sort(
+        key=lambda x: (x["strength"], x["opinion_count"]),
+        reverse=True,
+    )
     top = strengths[:3]
     if not top:
         return 0.0, []
@@ -65,11 +74,21 @@ def score_decision(
 ) -> dict[str, Any]:
     n = len(visible_rows)
     source_count = len(eda.get("source_counts", {}))
+    aligned_count = sum(
+        1 for row in visible_rows if bool(row.get("context_aligned"))
+    )
+    preference_aligned_count = sum(
+        1 for row in visible_rows if bool(row.get("preference_aligned"))
+    )
 
     count_quality = min(1.0, n / 30.0)
     source_quality = min(1.0, source_count / 3.0)
     recency_quality = float(eda.get("avg_recency", 0.0))
-    context_quality = min(1.0, float(rfm_summary.get("avg_M", 0.0)) * 2.0)
+    context_coverage = min(1.0, aligned_count / 12.0) if n else 0.0
+    context_quality = max(
+        min(1.0, float(rfm_summary.get("avg_M", 0.0)) * 2.0),
+        context_coverage,
+    )
 
     evidence_quality = (
         0.30 * count_quality
@@ -80,19 +99,23 @@ def score_decision(
 
     conflict_count = len(rca.get("conflicts", []))
     explained_aspects = {
-        c.get("aspect") for c in rca.get("cause_candidates", [])
+        c.get("aspect") for c in rca.get("main_candidates", [])
     }
     unresolved = sum(
         1 for conflict in rca.get("conflicts", [])
         if conflict.get("aspect") not in explained_aspects
     )
-
-    # 충돌 자체는 나쁜 것이 아니라 '불확실성'이므로 confidence에만 작게 반영한다.
-    conflict_penalty = min(0.15, unresolved * 0.03)
-    confidence = max(0.20, min(0.95, evidence_quality - conflict_penalty))
+    conflict_penalty = min(0.12, unresolved * 0.02)
+    confidence = max(
+        0.20,
+        min(0.95, evidence_quality - conflict_penalty),
+    )
 
     sentiment = _weighted_sentiment(visible_rows)
-    context_sentiment = _weighted_sentiment(visible_rows, context_only=True)
+    context_sentiment = _weighted_sentiment(
+        visible_rows,
+        context_only=True,
+    )
     positive_strength, positive_aspects = _positive_strength(eda)
 
     rca_risk = float(rca.get("aligned_risk", 0.0))
@@ -101,18 +124,16 @@ def score_decision(
         + 0.40 * float(wald.get("severe_signal", 0.0))
     )
 
-    # v2: 긍정 강점은 명시적으로 보상하고, 위험은 사용자 조건에 맞물릴 때만 보수적으로 감점.
     raw = (
         50.0
-        + 25.0 * sentiment
-        + 18.0 * context_sentiment
+        + 24.0 * sentiment
+        + 20.0 * context_sentiment
         + 10.0 * positive_strength
         - 10.0 * rca_risk
         - 8.0 * wald_risk
     )
     raw = max(0.0, min(100.0, raw))
 
-    # 저신뢰도에서 50점으로 지나치게 수축되던 문제 완화.
     shrink = 0.55 + 0.45 * confidence
     score = 50.0 + (raw - 50.0) * shrink
 
@@ -128,7 +149,6 @@ def score_decision(
         score = min(score, 70.0)
         caps.append("very low confidence")
 
-    # 높은 위험에서도 긍정 Evidence를 완전히 무시하지 않되 강한 추천은 제한한다.
     if rca_risk >= 0.75 or float(wald.get("severe_signal", 0.0)) >= 0.85:
         score = min(score, 62.0)
         caps.append("high aligned risk")
@@ -166,14 +186,16 @@ def score_decision(
             "shrink_to_neutral": round(shrink, 4),
             "conflict_count": conflict_count,
             "unresolved_conflicts": unresolved,
+            "aligned_evidence_count": aligned_count,
+            "preference_aligned_count": preference_aligned_count,
         },
         "score_caps": caps,
         "policy": {
-            "version": "balanced-v2",
+            "version": "balanced-v3-context-aligned",
             "go_threshold": "score>=70 AND confidence>=58 AND n>=12 AND no high aligned risk",
             "principle": (
-                "positive repeated strengths are rewarded; conflicts mainly reduce certainty; "
-                "RCA/Wald only reduce fit when risk is materially aligned with the user's conditions"
+                "context sentiment uses only evidence explicitly aligned with the user's conditions; "
+                "preference-aligned evidence receives a small additional weight"
             ),
         },
     }
