@@ -4,11 +4,13 @@ import pandas as pd
 import streamlit as st
 
 from src.eda import build_eda
-from src.naver_client import collect_visible_evidence, local_search
+from src.naver_client import collect_hidden_evidence, collect_visible_evidence, local_search
 from src.normalize import normalize_evidence
 from src.rca import derive_rca
 from src.rashomon import build_rashomon
 from src.rfm import build_rfm
+from src.scoring import score_decision
+from src.wald import analyze_wald
 
 st.set_page_config(page_title="Dike's Eye POC", page_icon="⚖️", layout="centered")
 
@@ -36,14 +38,17 @@ st.markdown("""
 .hero {border:1px solid rgba(128,128,128,.2); border-radius:22px; padding:1.2rem 1.4rem; margin-bottom:1rem;}
 .soft {opacity:.7;}
 .card {border:1px solid rgba(128,128,128,.18); border-radius:16px; padding:.9rem 1rem; margin:.5rem 0;}
+.go {border-left:5px solid #21a366;}
+.conditional {border-left:5px solid #d99a00;}
+.avoid {border-left:5px solid #d64545;}
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown("""
 <div class="hero">
-  <div class="soft">Bias-aware Review Decision Agent · POC Step 4</div>
+  <div class="soft">Bias-aware Review Decision Agent · POC Step 5</div>
   <h1>⚖️ Dike's Eye</h1>
-  <div>질문 → 식당 확인 → NAVER Evidence → EDA → RFM → Rashomon → RCA까지 검증합니다.</div>
+  <div>질문 → 식당 확인 → NAVER Evidence → EDA → RFM → Rashomon → RCA → Wald → Dike Score까지 검증합니다.</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -123,48 +128,78 @@ if st.session_state.selected_place:
         purpose = st.text_input("목적", placeholder="예: 소개팅")
         preference = st.text_input("중요 조건", placeholder="예: 조용함, 웨이팅")
 
-    if st.button("Evidence 분석 실행", type="primary", use_container_width=True):
+    if st.button("전체 Evidence 분석 실행", type="primary", use_container_width=True):
         context = {"date_or_day": day, "time": time, "purpose": purpose, "preference": preference}
-        with st.spinner("NAVER Evidence 수집 및 분석 중..."):
-            raw = collect_visible_evidence(place.get("title", st.session_state.query), **naver_credentials())
-            normalized = normalize_evidence(raw, context)
-            rfm_rows, rfm_summary = build_rfm(normalized)
+        target = place.get("title", st.session_state.query)
+        with st.spinner("Visible/Hidden Evidence 수집 및 분석 중..."):
+            visible_raw = collect_visible_evidence(target, **naver_credentials())
+            hidden_raw = collect_hidden_evidence(target, **naver_credentials())
+
+            visible_norm = normalize_evidence(visible_raw, context)
+            hidden_norm = normalize_evidence(hidden_raw, context)
+
+            rfm_rows, rfm_summary = build_rfm(visible_norm)
             eda = build_eda(rfm_rows)
             rca = derive_rca(rfm_rows, context)
             rashomon = build_rashomon(rca)
+            wald = analyze_wald(hidden_norm)
+            decision = score_decision(rfm_rows, eda, rfm_summary, rca, wald)
+
         st.session_state.analysis = {
-            "raw": raw,
+            "visible_raw": visible_raw,
+            "hidden_raw": hidden_raw,
             "rows": rfm_rows,
+            "hidden_rows": hidden_norm,
             "rfm": rfm_summary,
             "eda": eda,
             "context": context,
             "rca": rca,
             "rashomon": rashomon,
+            "wald": wald,
+            "decision": decision,
         }
 
 if st.session_state.analysis:
     a = st.session_state.analysis
-    st.success(f"Step 4 정상 · Evidence {len(a['rows'])}건")
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Evidence", len(a["rows"]))
-    m2.metric("평균 Recency", a["rfm"].get("avg_R", 0))
-    m3.metric("평균 Match", a["rfm"].get("avg_M", 0))
-    m4.metric("충돌 Aspect", a["rashomon"].get("conflict_count", 0))
+    d = a["decision"]
+    verdict = d.get("verdict", "CONDITIONAL")
+    label = {"GO": "추천", "CONDITIONAL": "조건부 추천", "AVOID": "비추천"}.get(verdict, verdict)
+    css = {"GO": "go", "CONDITIONAL": "conditional", "AVOID": "avoid"}.get(verdict, "conditional")
 
-    with st.expander("📊 EDA 결과", expanded=True):
+    st.success(f"Step 5 정상 · Visible {len(a['rows'])}건 / Hidden {len(a['hidden_rows'])}건")
+    st.markdown(
+        f"<div class='card {css}'><div class='soft'>Dike's Eye Verdict</div>"
+        f"<h2 style='margin:.1rem 0'>{label} · {d.get('fit_score', 0)}/100</h2>"
+        f"<div>판단 신뢰도 {d.get('confidence', 0)}%</div></div>",
+        unsafe_allow_html=True,
+    )
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Visible", len(a["rows"]))
+    m2.metric("Hidden", len(a["hidden_rows"]))
+    m3.metric("RCA Risk", d.get("components", {}).get("rca_risk", 0))
+    m4.metric("Wald Risk", d.get("components", {}).get("wald_risk", 0))
+
+    if d.get("score_caps"):
+        st.caption("점수 상한/보정: " + " · ".join(d["score_caps"]))
+
+    with st.expander("⚖️ Dike Score 계산 근거", expanded=True):
+        st.json(d)
+
+    with st.expander("📊 EDA 결과"):
         st.json(a["eda"])
 
-    with st.expander("🧮 RFM 상위 Evidence", expanded=True):
+    with st.expander("🧮 RFM 상위 Evidence"):
         df = pd.DataFrame(a["rows"])
         cols = [c for c in ["evidence_id", "source", "title", "aspects", "contexts", "sentiment", "R", "F", "M", "priority"] if c in df.columns]
         st.dataframe(df[cols].head(30) if cols else df.head(30), use_container_width=True, hide_index=True)
         st.caption("RFM은 Recency / Frequency / Match 기반 Evidence 우선순위 휴리스틱입니다.")
 
-    with st.expander("🎭 Rashomon · 서로 다른 진실", expanded=True):
+    with st.expander("🎭 Rashomon · 서로 다른 진실"):
         st.write(a["rashomon"].get("summary", ""))
         st.json(a["rashomon"])
 
-    with st.expander("🧩 RCA · 왜 의견이 갈렸나", expanded=True):
+    with st.expander("🧩 RCA · 왜 의견이 갈렸나"):
         st.caption(a["rca"].get("interpretation", ""))
         st.write("사용자 조건 flags:", a["rca"].get("user_context_flags", []))
         st.write("사용자 조건 정렬 위험도:", a["rca"].get("aligned_risk", 0))
@@ -174,5 +209,13 @@ if st.session_state.analysis:
         else:
             st.dataframe(candidates_df, use_container_width=True, hide_index=True)
 
+    with st.expander("🕳️ Wald · 사라진 진실", expanded=True):
+        st.caption(a["wald"].get("interpretation", ""))
+        st.json(a["wald"])
+        hidden_df = pd.DataFrame(a["hidden_rows"])
+        if not hidden_df.empty:
+            hidden_cols = [c for c in ["evidence_id", "source", "query", "title", "snippet"] if c in hidden_df.columns]
+            st.dataframe(hidden_df[hidden_cols].head(30), use_container_width=True, hide_index=True)
+
 st.divider()
-st.caption("POC Step 4 · NAVER Evidence + EDA + RFM + Rashomon + RCA / OpenAI · Wald · 최종 추천점수 미사용")
+st.caption("POC Step 5 · NAVER Evidence + EDA + RFM + Rashomon + RCA + Wald + deterministic Dike Score / OpenAI 미사용")
