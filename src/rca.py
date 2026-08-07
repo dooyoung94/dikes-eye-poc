@@ -52,6 +52,7 @@ def build_conflicts(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for aspect, buckets in grouped.items():
         pos = len(buckets["positive"])
         neg = len(buckets["negative"])
+        neutral = len(buckets["neutral"])
         total_opinion = pos + neg
 
         if pos < 2 or neg < 2 or total_opinion < 5:
@@ -62,7 +63,11 @@ def build_conflicts(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "aspect": aspect,
             "positive_count": pos,
             "negative_count": neg,
-            "neutral_count": len(buckets["neutral"]),
+            "neutral_count": neutral,
+            "opinion_count": total_opinion,
+            "total_count": total_opinion + neutral,
+            "positive_rate": round(pos / total_opinion, 4),
+            "negative_rate": round(neg / total_opinion, 4),
             "conflict_strength": round(balance, 4),
             "positive_evidence": buckets["positive"][:8],
             "negative_evidence": buckets["negative"][:8],
@@ -86,9 +91,9 @@ def derive_rca(rows: list[dict[str, Any]], context: dict[str, Any]) -> dict[str,
         if not relevant:
             continue
 
-        baseline_negative_rate = sum(
-            1 for row in relevant if int(row.get("sentiment", 0)) < 0
-        ) / len(relevant)
+        baseline_negative = [row for row in relevant if int(row.get("sentiment", 0)) < 0]
+        baseline_positive = [row for row in relevant if int(row.get("sentiment", 0)) > 0]
+        baseline_negative_rate = len(baseline_negative) / len(relevant)
 
         explicit_contexts = sorted({
             ctx
@@ -126,7 +131,13 @@ def derive_rca(rows: list[dict[str, Any]], context: dict[str, Any]) -> dict[str,
                 "aspect": aspect,
                 "context": ctx,
                 "effect": effect,
+                "baseline_total_count": len(relevant),
+                "baseline_positive_count": len(baseline_positive),
+                "baseline_negative_count": len(baseline_negative),
                 "baseline_negative_rate": round(baseline_negative_rate, 4),
+                "context_total_count": len(subset),
+                "context_positive_count": len(positive),
+                "context_negative_count": len(negative),
                 "context_negative_rate": round(negative_rate, 4),
                 "lift": round(lift, 4),
                 "support_count": len(subset),
@@ -163,5 +174,5 @@ def derive_rca(rows: list[dict[str, Any]], context: dict[str, Any]) -> dict[str,
         "cause_candidates": candidates[:20],
         "user_context_flags": sorted(flags),
         "aligned_risk": round(aligned_risk, 4),
-        "interpretation": "RCA 결과는 관찰된 조건별 연관성이며 인과관계를 확정하지 않습니다.",
+        "interpretation": "조건별 비율 차이를 비교한 관찰 결과이며, 인과관계를 확정하지 않습니다.",
     }
