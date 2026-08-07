@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from src.eda import build_eda
+from src.llm_explain import generate_explanation
 from src.naver_client import collect_hidden_evidence, collect_visible_evidence, local_search
 from src.normalize import normalize_evidence
 from src.rca import derive_rca
@@ -46,9 +47,9 @@ st.markdown("""
 
 st.markdown("""
 <div class="hero">
-  <div class="soft">Bias-aware Review Decision Agent · POC Step 5</div>
+  <div class="soft">Bias-aware Review Decision Agent · POC Step 6</div>
   <h1>⚖️ Dike's Eye</h1>
-  <div>질문 → 식당 확인 → NAVER Evidence → EDA → RFM → Rashomon → RCA → Wald → Dike Score까지 검증합니다.</div>
+  <div>EDA → RFM → Rashomon → RCA → Wald → Dike Score를 계산하고, OpenAI는 선택적으로 결과를 설명만 합니다.</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -59,6 +60,7 @@ for key, default in {
     "search_status": "",
     "selected_place": None,
     "analysis": None,
+    "explanation": None,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -77,6 +79,7 @@ if submitted and question.strip():
     st.session_state.candidates = []
     st.session_state.selected_place = None
     st.session_state.analysis = None
+    st.session_state.explanation = None
     st.session_state.search_status = ""
     st.session_state.messages.append(("user", text))
     st.session_state.messages.append(("assistant", "입력을 받았어요. 아래에서 식당 후보를 확인해 주세요."))
@@ -113,6 +116,8 @@ if st.session_state.query:
 
         if st.button("네, 이 식당이 맞아요", type="primary", use_container_width=True):
             st.session_state.selected_place = chosen
+            st.session_state.analysis = None
+            st.session_state.explanation = None
             st.success(f"장소 확인 정상: {chosen.get('title','')}")
 
 if st.session_state.selected_place:
@@ -158,6 +163,7 @@ if st.session_state.selected_place:
             "wald": wald,
             "decision": decision,
         }
+        st.session_state.explanation = None
 
 if st.session_state.analysis:
     a = st.session_state.analysis
@@ -166,7 +172,7 @@ if st.session_state.analysis:
     label = {"GO": "추천", "CONDITIONAL": "조건부 추천", "AVOID": "비추천"}.get(verdict, verdict)
     css = {"GO": "go", "CONDITIONAL": "conditional", "AVOID": "avoid"}.get(verdict, "conditional")
 
-    st.success(f"Step 5 정상 · Visible {len(a['rows'])}건 / Hidden {len(a['hidden_rows'])}건")
+    st.success(f"Step 6 정상 · Visible {len(a['rows'])}건 / Hidden {len(a['hidden_rows'])}건")
     st.markdown(
         f"<div class='card {css}'><div class='soft'>Dike's Eye Verdict</div>"
         f"<h2 style='margin:.1rem 0'>{label} · {d.get('fit_score', 0)}/100</h2>"
@@ -182,6 +188,34 @@ if st.session_state.analysis:
 
     if d.get("score_caps"):
         st.caption("점수 상한/보정: " + " · ".join(d["score_caps"]))
+
+    st.divider()
+    st.subheader("🤖 AI 설명")
+    st.caption("점수와 verdict는 이미 확정되어 있으며, AI는 설명 문장만 생성합니다.")
+    openai_ready = bool(secret("OPENAI_API_KEY"))
+    st.write("OpenAI 상태:", "✅ Secret 연결" if openai_ready else "⚪ 미설정 · fallback 설명 사용")
+
+    if st.button("AI 설명 생성", use_container_width=True):
+        with st.spinner("분석 결과를 설명 문장으로 정리 중..."):
+            st.session_state.explanation = generate_explanation(
+                a,
+                api_key=secret("OPENAI_API_KEY"),
+                model=secret("OPENAI_MODEL", "gpt-5-mini"),
+            )
+
+    if st.session_state.explanation:
+        e = st.session_state.explanation
+        st.markdown(f"### {e.get('headline','')}")
+        st.write(e.get("answer", ""))
+        if e.get("reasons"):
+            st.markdown("**근거**")
+            for reason in e.get("reasons", []):
+                st.markdown(f"- {reason}")
+        if e.get("risks"):
+            st.markdown("**주의할 점**")
+            for risk in e.get("risks", []):
+                st.markdown(f"- {risk}")
+        st.caption("설명 소스: " + ("OpenAI" if e.get("source") == "openai" else "deterministic fallback"))
 
     with st.expander("⚖️ Dike Score 계산 근거", expanded=True):
         st.json(d)
@@ -218,4 +252,4 @@ if st.session_state.analysis:
             st.dataframe(hidden_df[hidden_cols].head(30), use_container_width=True, hide_index=True)
 
 st.divider()
-st.caption("POC Step 5 · NAVER Evidence + EDA + RFM + Rashomon + RCA + Wald + deterministic Dike Score / OpenAI 미사용")
+st.caption("POC Step 6 · deterministic Dike Score + optional OpenAI explanation. OpenAI는 점수/판단을 변경하지 않습니다.")
