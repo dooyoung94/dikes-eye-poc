@@ -174,12 +174,11 @@ def derive_rca(rows: list[dict[str, Any]], context: dict[str, Any]) -> dict[str,
     flags = _user_flags(context)
     preference_aspects = _preference_aspects(context)
     context_label = _context_label(context, flags)
-    candidates: list[dict[str, Any]] = []
+    all_candidates: list[dict[str, Any]] = []
 
     aspects = sorted({aspect for row in rows for aspect in row.get("aspects", ["other"])})
     conflict_map = {c["aspect"]: c for c in conflicts}
 
-    # 1) 명시적 중요조건은 별도 subset으로 최우선 비교한다.
     for aspect in sorted(preference_aspects):
         relevant = [
             r for r in rows
@@ -187,10 +186,7 @@ def derive_rca(rows: list[dict[str, Any]], context: dict[str, Any]) -> dict[str,
         ]
         if len(relevant) < 4:
             continue
-        subset = [
-            r for r in relevant
-            if bool(r.get("preference_aligned"))
-        ]
+        subset = [r for r in relevant if bool(r.get("preference_aligned"))]
         candidate = _candidate_from_subset(
             aspect,
             relevant,
@@ -201,9 +197,8 @@ def derive_rca(rows: list[dict[str, Any]], context: dict[str, Any]) -> dict[str,
             analysis_scope="user_preference_subset",
         )
         if candidate:
-            candidates.append(candidate)
+            all_candidates.append(candidate)
 
-    # 2) 나머지 시간/목적/조건 전체 subset을 비교한다.
     for aspect in aspects:
         if aspect in preference_aspects:
             continue
@@ -224,9 +219,9 @@ def derive_rca(rows: list[dict[str, Any]], context: dict[str, Any]) -> dict[str,
             analysis_scope="user_context_subset",
         )
         if candidate:
-            candidates.append(candidate)
+            all_candidates.append(candidate)
 
-    # 3) 명시적 context 패턴은 상세보기용 후보로만 유지한다.
+    diagnostic_candidates: list[dict[str, Any]] = []
     for conflict in conflicts:
         aspect = conflict["aspect"]
         relevant = [
@@ -246,16 +241,22 @@ def derive_rca(rows: list[dict[str, Any]], context: dict[str, Any]) -> dict[str,
                 analysis_scope="explicit_context",
             )
             if candidate:
-                candidates.append(candidate)
+                diagnostic_candidates.append(candidate)
 
     scope_rank = {
         "user_preference_subset": 3,
         "user_context_subset": 2,
-        "explicit_context": 1,
     }
-    candidates.sort(
+    all_candidates.sort(
         key=lambda x: (
             scope_rank.get(str(x.get("analysis_scope")), 0),
+            abs(float(x["lift"])) * float(x["confidence"]),
+            x["support_count"],
+        ),
+        reverse=True,
+    )
+    diagnostic_candidates.sort(
+        key=lambda x: (
             x["user_aligned"],
             abs(float(x["lift"])) * float(x["confidence"]),
             x["support_count"],
@@ -264,10 +265,8 @@ def derive_rca(rows: list[dict[str, Any]], context: dict[str, Any]) -> dict[str,
     )
 
     aligned_worsening = [
-        c for c in candidates
-        if c["user_aligned"]
-        and c["effect"] == "worsens"
-        and c.get("analysis_scope") in {"user_preference_subset", "user_context_subset"}
+        c for c in all_candidates
+        if c["effect"] == "worsens"
     ]
     aligned_risk = max(
         (
@@ -277,21 +276,17 @@ def derive_rca(rows: list[dict[str, Any]], context: dict[str, Any]) -> dict[str,
         default=0.0,
     )
 
-    main_candidates = [
-        c for c in candidates
-        if c.get("analysis_scope") in {"user_preference_subset", "user_context_subset"}
-    ]
-
     return {
         "conflicts": conflicts,
-        "cause_candidates": candidates[:24],
-        "main_candidates": main_candidates[:12],
+        "cause_candidates": all_candidates[:12],
+        "main_candidates": all_candidates[:12],
+        "diagnostic_candidates": diagnostic_candidates[:20],
         "preference_aspects": sorted(preference_aspects),
         "user_context_flags": sorted(flags),
         "user_context_label": context_label,
         "aligned_risk": round(aligned_risk, 4),
         "interpretation": (
-            "중요조건은 해당 Aspect의 preference-aligned Evidence를 우선 비교하고, "
-            "시간·목적 조건은 context-aligned Evidence를 비교합니다. 명시되지 않은 context는 메인 판단에 사용하지 않습니다."
+            "메인 RCA에는 사용자가 직접 입력한 중요조건 또는 시간·목적과 연결된 Evidence만 사용합니다. "
+            "본문에서 우연히 발견된 다른 context는 진단 상세보기용으로만 분리합니다."
         ),
     }
