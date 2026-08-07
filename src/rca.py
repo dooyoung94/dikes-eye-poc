@@ -4,10 +4,21 @@ from collections import defaultdict
 from typing import Any
 
 
+PURPOSE_FLAGS = {
+    "출퇴근": {"commute"},
+    "업무": {"office"},
+    "업무 미팅": {"office"},
+    "게임": {"gaming"},
+    "여행": {"travel"},
+    "운동": {"exercise"},
+}
+
+
 def _user_flags(context: dict[str, Any]) -> set[str]:
     flags: set[str] = set()
     day = str(context.get("date_or_day", ""))
     time = str(context.get("time", ""))
+    purpose = str(context.get("purpose", ""))
 
     if any(x in day for x in ["토요일", "일요일", "주말"]):
         flags.add("weekend")
@@ -15,7 +26,8 @@ def _user_flags(context: dict[str, Any]) -> set[str]:
         flags.add("weekday")
 
     try:
-        hour = int("".join(ch for ch in time[:3] if ch.isdigit()))
+        digits = "".join(ch for ch in time[:3] if ch.isdigit())
+        hour = int(digits) if digits else -1
         if 11 <= hour <= 14:
             flags.add("lunch")
         if 17 <= hour <= 22:
@@ -23,6 +35,7 @@ def _user_flags(context: dict[str, Any]) -> set[str]:
     except (ValueError, TypeError):
         pass
 
+    flags.update(PURPOSE_FLAGS.get(purpose, set()))
     return flags
 
 
@@ -41,7 +54,6 @@ def build_conflicts(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         neg = len(buckets["negative"])
         total_opinion = pos + neg
 
-        # 너무 작은 표본에서 충돌이라고 부르지 않음
         if pos < 2 or neg < 2 or total_opinion < 5:
             continue
 
@@ -94,7 +106,6 @@ def derive_rca(rows: list[dict[str, Any]], context: dict[str, Any]) -> dict[str,
             negative_rate = len(negative) / len(subset)
             lift = negative_rate - baseline_negative_rate
 
-            # 차이가 너무 작으면 원인 후보로 올리지 않음
             if abs(lift) < 0.12:
                 continue
 
