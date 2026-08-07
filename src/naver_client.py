@@ -70,13 +70,7 @@ def search_content(endpoint: str, query: str, *, hub_id: str = "", hub_secret: s
     return rows
 
 
-def collect_visible_evidence(target: str, *, hub_id: str = "", hub_secret: str = "", legacy_id: str = "", legacy_secret: str = "") -> list[dict[str, Any]]:
-    queries = [f"{target} 후기", f"{target} 리뷰", f"{target} 분위기", f"{target} 웨이팅"]
-    rows: list[dict[str, Any]] = []
-    for query in queries:
-        for endpoint in ("blog", "cafearticle", "webkr"):
-            rows.extend(search_content(endpoint, query, hub_id=hub_id, hub_secret=hub_secret, legacy_id=legacy_id, legacy_secret=legacy_secret, display=8))
-
+def _dedupe(rows: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
     deduped = []
     seen = set()
     for row in rows:
@@ -84,4 +78,30 @@ def collect_visible_evidence(target: str, *, hub_id: str = "", hub_secret: str =
         if key and key not in seen:
             seen.add(key)
             deduped.append(row)
-    return deduped[:60]
+    return deduped[:limit]
+
+
+def collect_visible_evidence(target: str, *, hub_id: str = "", hub_secret: str = "", legacy_id: str = "", legacy_secret: str = "") -> list[dict[str, Any]]:
+    queries = [f"{target} 후기", f"{target} 리뷰", f"{target} 분위기", f"{target} 웨이팅"]
+    rows: list[dict[str, Any]] = []
+    for query in queries:
+        for endpoint in ("blog", "cafearticle", "webkr"):
+            rows.extend(search_content(endpoint, query, hub_id=hub_id, hub_secret=hub_secret, legacy_id=legacy_id, legacy_secret=legacy_secret, display=8))
+    return _dedupe(rows, 60)
+
+
+def collect_hidden_evidence(target: str, *, hub_id: str = "", hub_secret: str = "", legacy_id: str = "", legacy_secret: str = "") -> list[dict[str, Any]]:
+    # visible 후기와 달리 선택 이전/이탈 측 신호를 찾기 위한 별도 질의
+    queries = [
+        f"{target} 예약 실패",
+        f"{target} 예약 마감",
+        f"{target} 웨이팅 포기",
+        f"{target} 대기 포기",
+        f"{target} 주차 포기",
+        f"{target} 재방문 안",
+    ]
+    rows: list[dict[str, Any]] = []
+    for query in queries:
+        for endpoint in ("blog", "cafearticle", "webkr"):
+            rows.extend(search_content(endpoint, query, hub_id=hub_id, hub_secret=hub_secret, legacy_id=legacy_id, legacy_secret=legacy_secret, display=5))
+    return _dedupe(rows, 45)
