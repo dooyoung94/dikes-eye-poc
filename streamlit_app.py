@@ -53,8 +53,8 @@ def reset_after_question(intent: dict) -> None:
 
 def run_decision(target: str, kind: str, context: dict) -> dict:
     creds = naver_credentials()
-    visible_raw = collect_visible_evidence(target, kind=kind, **creds)
-    hidden_raw = collect_hidden_evidence(target, kind=kind, **creds)
+    visible_raw = collect_visible_evidence(target, kind=kind, context=context, **creds)
+    hidden_raw = collect_hidden_evidence(target, kind=kind, context=context, **creds)
     visible_norm = normalize_evidence(visible_raw, context)
     hidden_norm = normalize_evidence(hidden_raw, context)
     rfm_rows, rfm_summary = build_rfm(visible_norm)
@@ -334,8 +334,10 @@ if st.session_state.analysis and st.session_state.user_report:
             bar_row("내 조건", ctx_rate, f"{ctx_rate:.0f}%", "negative" if diff > 0 else "positive")
             if diff > 0:
                 st.caption("내 조건에서는 부정 의견이 전체보다 더 자주 나타났어요. 이 부분만 실제 선택에서 주의하면 됩니다.")
-            else:
+            elif diff < 0:
                 st.caption("내 조건에서는 오히려 부정 의견이 전체보다 적었어요. 이 조건은 긍정적으로 반영할 수 있습니다.")
+            else:
+                st.caption("내 조건과 전체의 차이가 거의 없어요. 이 조건만으로 평가가 달라진다고 보기는 어렵습니다.")
 
     signal_counts = a.get("wald", {}).get("signal_counts", {})
     if signal_counts:
@@ -393,13 +395,13 @@ if st.session_state.analysis and st.session_state.user_report:
         st.markdown("##### RCA · 조건별 차이")
         rca_df = pd.DataFrame(rca_candidates)
         if not rca_df.empty:
-            cols = [c for c in ["aspect","context","baseline_total_count","baseline_negative_count","baseline_negative_rate","context_total_count","context_negative_count","context_negative_rate","lift","confidence","user_aligned"] if c in rca_df.columns]
+            cols = [c for c in ["aspect","context","analysis_scope","baseline_total_count","baseline_negative_count","baseline_negative_rate","context_total_count","context_negative_count","context_negative_rate","lift","confidence","user_aligned"] if c in rca_df.columns]
             st.dataframe(rca_df[cols], use_container_width=True, hide_index=True)
         else:
             st.info("조건별 차이를 설명할 만큼 충분한 후보가 없습니다.")
         st.markdown("##### 상위 Evidence")
         df = pd.DataFrame(a.get("rows", []))
-        cols = [c for c in ["source","title","aspects","contexts","sentiment","R","F","M","priority"] if c in df.columns]
+        cols = [c for c in ["source","retrieval_scope","title","aspects","contexts","context_aligned","sentiment","R","F","M","priority"] if c in df.columns]
         if not df.empty:
             st.dataframe(df[cols].head(20), use_container_width=True, hide_index=True)
 
