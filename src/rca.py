@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
+from src.condition_analysis import analyze_conditions
+
 
 PURPOSE_FLAGS = {
     "출퇴근": {"commute"},
@@ -13,29 +15,16 @@ PURPOSE_FLAGS = {
     "운동": {"exercise"},
 }
 
-PREFERENCE_ASPECT_RULES = {
-    "price_value": ["가격", "가성비", "비용", "저렴", "비싸", "할인", "금액"],
-    "noise_atmosphere": ["조용", "소음", "분위기", "대화", "시끄", "감성"],
-    "comfort": ["안락", "안락함", "편안", "편안함", "아늑", "아늑함", "쾌적", "쾌적함", "좌석"],
-    "wait_reservation": ["웨이팅", "대기", "예약", "줄"],
-    "service": ["친절", "서비스", "응대", "직원", "AS"],
-    "quality_performance": ["맛", "품질", "성능", "배터리", "발열", "음질", "화질", "내구", "불량", "연결"],
-    "convenience_fit": ["주차", "접근", "거리", "휴대", "무게", "착용", "착용감", "사이즈"],
-    "design_experience": ["디자인", "색상", "마감", "화면"],
-}
-
 
 def _user_flags(context: dict[str, Any]) -> set[str]:
     flags: set[str] = set()
     day = str(context.get("date_or_day", ""))
     time = str(context.get("time", ""))
     purpose = str(context.get("purpose", ""))
-
     if any(x in day for x in ["토요일", "일요일", "주말"]):
         flags.add("weekend")
     if any(x in day for x in ["월요일", "화요일", "수요일", "목요일", "금요일", "평일"]):
         flags.add("weekday")
-
     digits = "".join(ch for ch in time[:3] if ch.isdigit())
     try:
         hour = int(digits) if digits else -1
@@ -45,37 +34,17 @@ def _user_flags(context: dict[str, Any]) -> set[str]:
         flags.add("lunch")
     if 17 <= hour <= 22:
         flags.add("dinner")
-
     flags.update(PURPOSE_FLAGS.get(purpose, set()))
     return flags
 
 
-def _preference_aspects(context: dict[str, Any]) -> set[str]:
-    raw = str(context.get("preference") or "").lower()
-    found: set[str] = set()
-    for aspect, keywords in PREFERENCE_ASPECT_RULES.items():
-        if any(keyword.lower() in raw for keyword in keywords):
-            found.add(aspect)
-    return found
-
-
-def _context_label(context: dict[str, Any], flags: set[str]) -> str:
-    parts: list[str] = []
-    day = str(context.get("date_or_day") or "").strip()
-    time = str(context.get("time") or "").strip()
-    purpose = str(context.get("purpose") or "").strip()
-    preference = str(context.get("preference") or "").strip()
-    if day:
-        parts.append(day)
-    if time:
-        parts.append(time)
-    if purpose:
-        parts.append(purpose)
-    if preference:
-        parts.append(preference)
-    if parts:
-        return " · ".join(parts)
-    return ", ".join(sorted(flags)) or "사용자 조건"
+def _context_label(context: dict[str, Any]) -> str:
+    parts = [
+        str(context.get("date_or_day") or "").strip(),
+        str(context.get("time") or "").strip(),
+        str(context.get("purpose") or "").strip(),
+    ]
+    return " · ".join(x for x in parts if x) or "사용 상황"
 
 
 def build_conflicts(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -91,20 +60,19 @@ def build_conflicts(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         pos = len(buckets["positive"])
         neg = len(buckets["negative"])
         neutral = len(buckets["neutral"])
-        total_opinion = pos + neg
-        if pos < 2 or neg < 2 or total_opinion < 5:
+        opinion_count = pos + neg
+        if pos < 2 or neg < 2 or opinion_count < 5:
             continue
-        balance = min(pos, neg) / max(1, total_opinion)
         conflicts.append({
             "aspect": aspect,
             "positive_count": pos,
             "negative_count": neg,
             "neutral_count": neutral,
-            "opinion_count": total_opinion,
-            "total_count": total_opinion + neutral,
-            "positive_rate": round(pos / total_opinion, 4),
-            "negative_rate": round(neg / total_opinion, 4),
-            "conflict_strength": round(balance, 4),
+            "opinion_count": opinion_count,
+            "total_count": opinion_count + neutral,
+            "positive_rate": round(pos / opinion_count, 4),
+            "negative_rate": round(neg / opinion_count, 4),
+            "conflict_strength": round(min(pos, neg) / opinion_count, 4),
             "positive_evidence": buckets["positive"][:8],
             "negative_evidence": buckets["negative"][:8],
         })
@@ -112,179 +80,76 @@ def build_conflicts(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return conflicts
 
 
-def _candidate_from_subset(
-    aspect: str,
-    relevant: list[dict[str, Any]],
-    subset: list[dict[str, Any]],
-    label: str,
-    *,
-    user_aligned: bool,
-    conflict_strength: float,
-    analysis_scope: str,
-) -> dict[str, Any] | None:
-    if len(subset) < 3:
-        return None
-
-    baseline_negative = [r for r in relevant if int(r.get("sentiment", 0)) < 0]
-    baseline_positive = [r for r in relevant if int(r.get("sentiment", 0)) > 0]
-    negative = [r for r in subset if int(r.get("sentiment", 0)) < 0]
-    positive = [r for r in subset if int(r.get("sentiment", 0)) > 0]
-
-    baseline_rate = len(baseline_negative) / len(relevant)
-    context_rate = len(negative) / len(subset)
-    lift = context_rate - baseline_rate
-
-    support_factor = min(1.0, len(subset) / 8.0)
-    confidence = min(
-        0.92,
-        0.28
-        + 0.32 * min(1.0, abs(lift) * 2)
-        + 0.25 * support_factor
-        + 0.15 * conflict_strength,
+def _situational_candidates(
+    condition_results: list[dict[str, Any]],
+    context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    label = _context_label(context)
+    out: list[dict[str, Any]] = []
+    for item in condition_results:
+        if int(item.get("situational_count", 0)) < 3:
+            continue
+        lift = float(item.get("situational_lift", 0.0))
+        effect = "worsens" if lift > 0.03 else "improves" if lift < -0.03 else "similar"
+        confidence = min(
+            0.92,
+            0.35
+            + 0.30 * min(1.0, abs(lift) * 2)
+            + 0.25 * min(1.0, int(item.get("situational_count", 0)) / 8.0),
+        )
+        out.append({
+            "aspect": item.get("aspect"),
+            "context": label,
+            "effect": effect,
+            "baseline_total_count": int(item.get("total_count", 0)),
+            "baseline_positive_count": int(item.get("positive_count", 0)),
+            "baseline_negative_count": int(item.get("negative_count", 0)),
+            "baseline_negative_rate": float(item.get("negative_rate", 0.0)),
+            "context_total_count": int(item.get("situational_count", 0)),
+            "context_positive_count": int(item.get("situational_positive_count", 0)),
+            "context_negative_count": int(item.get("situational_negative_count", 0)),
+            "context_negative_rate": float(item.get("situational_negative_rate", 0.0)),
+            "lift": round(lift, 4),
+            "support_count": int(item.get("situational_count", 0)),
+            "confidence": round(confidence, 4),
+            "user_aligned": True,
+            "claim_level": "observed_association",
+            "analysis_scope": "situational_condition_shift",
+        })
+    out.sort(
+        key=lambda x: (
+            abs(float(x["lift"])) * float(x["confidence"]),
+            x["support_count"],
+        ),
+        reverse=True,
     )
-
-    effect = "worsens" if lift > 0.03 else "improves" if lift < -0.03 else "similar"
-    supporting = negative if effect == "worsens" else positive if effect == "improves" else subset
-    counter = positive if effect == "worsens" else negative if effect == "improves" else []
-
-    return {
-        "aspect": aspect,
-        "context": label,
-        "effect": effect,
-        "baseline_total_count": len(relevant),
-        "baseline_positive_count": len(baseline_positive),
-        "baseline_negative_count": len(baseline_negative),
-        "baseline_negative_rate": round(baseline_rate, 4),
-        "context_total_count": len(subset),
-        "context_positive_count": len(positive),
-        "context_negative_count": len(negative),
-        "context_negative_rate": round(context_rate, 4),
-        "lift": round(lift, 4),
-        "support_count": len(subset),
-        "supporting_evidence": [x.get("evidence_id", "") for x in supporting[:8]],
-        "counter_evidence": [x.get("evidence_id", "") for x in counter[:8]],
-        "confidence": round(confidence, 4),
-        "user_aligned": user_aligned,
-        "claim_level": "observed_association",
-        "analysis_scope": analysis_scope,
-    }
+    return out
 
 
 def derive_rca(rows: list[dict[str, Any]], context: dict[str, Any]) -> dict[str, Any]:
     conflicts = build_conflicts(rows)
-    flags = _user_flags(context)
-    preference_aspects = _preference_aspects(context)
-    context_label = _context_label(context, flags)
-    all_candidates: list[dict[str, Any]] = []
-
-    aspects = sorted({aspect for row in rows for aspect in row.get("aspects", ["other"])})
-    conflict_map = {c["aspect"]: c for c in conflicts}
-
-    for aspect in sorted(preference_aspects):
-        relevant = [
-            r for r in rows
-            if aspect in r.get("aspects", []) and int(r.get("sentiment", 0)) != 0
-        ]
-        if len(relevant) < 4:
-            continue
-        subset = [r for r in relevant if bool(r.get("preference_aligned"))]
-        candidate = _candidate_from_subset(
-            aspect,
-            relevant,
-            subset,
-            str(context.get("preference") or context_label),
-            user_aligned=True,
-            conflict_strength=float(conflict_map.get(aspect, {}).get("conflict_strength", 0.0)),
-            analysis_scope="user_preference_subset",
-        )
-        if candidate:
-            all_candidates.append(candidate)
-
-    for aspect in aspects:
-        if aspect in preference_aspects:
-            continue
-        relevant = [
-            r for r in rows
-            if aspect in r.get("aspects", []) and int(r.get("sentiment", 0)) != 0
-        ]
-        if len(relevant) < 4:
-            continue
-        subset = [r for r in relevant if bool(r.get("context_aligned"))]
-        candidate = _candidate_from_subset(
-            aspect,
-            relevant,
-            subset,
-            context_label,
-            user_aligned=True,
-            conflict_strength=float(conflict_map.get(aspect, {}).get("conflict_strength", 0.0)),
-            analysis_scope="user_context_subset",
-        )
-        if candidate:
-            all_candidates.append(candidate)
-
-    diagnostic_candidates: list[dict[str, Any]] = []
-    for conflict in conflicts:
-        aspect = conflict["aspect"]
-        relevant = [
-            r for r in rows
-            if aspect in r.get("aspects", []) and int(r.get("sentiment", 0)) != 0
-        ]
-        explicit_contexts = sorted({ctx for row in relevant for ctx in row.get("contexts", [])})
-        for ctx in explicit_contexts:
-            subset = [r for r in relevant if ctx in r.get("contexts", [])]
-            candidate = _candidate_from_subset(
-                aspect,
-                relevant,
-                subset,
-                ctx,
-                user_aligned=ctx in flags,
-                conflict_strength=float(conflict.get("conflict_strength", 0.0)),
-                analysis_scope="explicit_context",
-            )
-            if candidate:
-                diagnostic_candidates.append(candidate)
-
-    scope_rank = {
-        "user_preference_subset": 3,
-        "user_context_subset": 2,
-    }
-    all_candidates.sort(
-        key=lambda x: (
-            scope_rank.get(str(x.get("analysis_scope")), 0),
-            abs(float(x["lift"])) * float(x["confidence"]),
-            x["support_count"],
-        ),
-        reverse=True,
-    )
-    diagnostic_candidates.sort(
-        key=lambda x: (
-            x["user_aligned"],
-            abs(float(x["lift"])) * float(x["confidence"]),
-            x["support_count"],
-        ),
-        reverse=True,
-    )
-
-    aligned_worsening = [c for c in all_candidates if c["effect"] == "worsens"]
+    condition_results = analyze_conditions(rows, context)
+    situational = _situational_candidates(condition_results, context)
+    worsening = [x for x in situational if x.get("effect") == "worsens"]
     aligned_risk = max(
         (
-            min(1.0, abs(float(c["lift"])) * float(c["confidence"]) * 1.6)
-            for c in aligned_worsening
+            min(1.0, abs(float(x.get("lift", 0))) * float(x.get("confidence", 0)) * 1.6)
+            for x in worsening
         ),
         default=0.0,
     )
 
     return {
         "conflicts": conflicts,
-        "cause_candidates": all_candidates[:12],
-        "main_candidates": all_candidates[:12],
-        "diagnostic_candidates": diagnostic_candidates[:20],
-        "preference_aspects": sorted(preference_aspects),
-        "user_context_flags": sorted(flags),
-        "user_context_label": context_label,
+        "condition_results": condition_results,
+        "cause_candidates": situational[:12],
+        "main_candidates": situational[:12],
+        "diagnostic_candidates": situational[:20],
+        "user_context_flags": sorted(_user_flags(context)),
+        "user_context_label": _context_label(context),
         "aligned_risk": round(aligned_risk, 4),
         "interpretation": (
-            "메인 RCA에는 사용자가 직접 입력한 중요조건 또는 시간·목적과 연결된 Evidence만 사용합니다. "
-            "본문에서 우연히 발견된 다른 context는 진단 상세보기용으로만 분리합니다."
+            "중요조건 자체 평가는 해당 Aspect의 전체 Evidence로 계산하고, "
+            "요일·시간·목적에 따른 변화는 별도 상황 subset으로 비교합니다."
         ),
     }
