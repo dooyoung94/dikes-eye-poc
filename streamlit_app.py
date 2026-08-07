@@ -91,31 +91,129 @@ def run_decision(target: str, kind: str, context: dict) -> dict:
 st.markdown(
     """
 <style>
-.block-container {max-width: 860px; padding-top: 1.8rem; padding-bottom: 5rem;}
-[data-testid="stMetricValue"] {font-size: 1.55rem;}
-.hero-title {font-size: 2.35rem; font-weight: 800; letter-spacing: -0.04em; margin-bottom: .25rem;}
-.hero-sub {font-size: 1.05rem; opacity: .74; line-height: 1.65; margin-bottom: 1.15rem;}
-.eyebrow {font-size: .76rem; font-weight: 800; letter-spacing: .08em; opacity: .55; text-transform: uppercase;}
-.soft {opacity: .7;}
-.small {font-size: .88rem; opacity: .68;}
-.stButton > button {border-radius: 999px; min-height: 2.7rem;}
+:root {
+    --ivory: #f7f3e9;
+    --paper: #fffdf7;
+    --navy: #172238;
+    --navy-soft: #263750;
+    --gold: #b58a3c;
+    --gold-soft: #ddc994;
+    --line: rgba(181, 138, 60, .30);
+    --muted: #6c6a65;
+}
+
+[data-testid="stAppViewContainer"] {
+    background:
+      radial-gradient(circle at 14% 0%, rgba(181,138,60,.10), transparent 25%),
+      radial-gradient(circle at 88% 4%, rgba(23,34,56,.055), transparent 24%),
+      linear-gradient(180deg, #fbf8f0 0%, #f5f0e5 100%);
+    color: var(--navy);
+}
+
+[data-testid="stHeader"] {background: transparent;}
+.block-container {max-width: 930px; padding-top: 1.6rem; padding-bottom: 6rem;}
+
+.dike-hero {
+    position: relative;
+    border: 1px solid var(--line);
+    border-radius: 26px;
+    padding: 1.65rem 1.75rem 1.55rem 1.75rem;
+    background: linear-gradient(145deg, rgba(255,253,247,.94), rgba(248,242,226,.92));
+    box-shadow: 0 18px 50px rgba(23,34,56,.07);
+    overflow: hidden;
+    margin-bottom: 1rem;
+}
+.dike-hero:after {
+    content: "⚖";
+    position: absolute;
+    right: 1.1rem;
+    top: -.6rem;
+    font-size: 8.5rem;
+    color: rgba(181,138,60,.085);
+    transform: rotate(-7deg);
+}
+.dike-kicker {font-size:.72rem; letter-spacing:.18em; font-weight:800; color:var(--gold); text-transform:uppercase;}
+.dike-title {font-family: Georgia, 'Times New Roman', serif; font-size:2.75rem; line-height:1; font-weight:700; color:var(--navy); margin:.45rem 0 .55rem 0; letter-spacing:-.035em;}
+.dike-sub {max-width:690px; color:#4f5360; line-height:1.7; font-size:1.02rem;}
+.dike-motto {margin-top:.8rem; color:var(--gold); font-family: Georgia, 'Times New Roman', serif; font-style:italic; font-size:.94rem;}
+
+.seal-row {display:flex; gap:.55rem; flex-wrap:wrap; margin:.95rem 0 .15rem 0;}
+.seal-chip {border:1px solid var(--line); border-radius:999px; padding:.32rem .65rem; background:rgba(255,255,255,.55); font-size:.78rem; color:var(--navy-soft);}
+
+.section-kicker {font-size:.72rem; letter-spacing:.12em; font-weight:800; color:var(--gold); text-transform:uppercase; margin-bottom:.18rem;}
+.opinion-title {font-family: Georgia, 'Times New Roman', serif; font-size:1.65rem; font-weight:700; color:var(--navy); margin-bottom:.2rem;}
+.opinion-rule {height:1px; background:linear-gradient(90deg,var(--gold),rgba(181,138,60,0)); margin:.65rem 0 1rem 0;}
+
+.opinion-sheet {
+    border:1px solid var(--line);
+    border-radius:20px;
+    padding:1.25rem 1.35rem;
+    background:rgba(255,253,247,.88);
+    box-shadow:0 12px 34px rgba(23,34,56,.05);
+}
+.meta-grid {display:grid; grid-template-columns:110px 1fr; gap:.35rem .8rem; font-size:.9rem; margin:.7rem 0;}
+.meta-label {color:#8b754d; font-weight:700;}
+.meta-value {color:var(--navy);}
+.verdict-banner {border-left:5px solid var(--gold); padding:.85rem 1rem; background:rgba(181,138,60,.075); border-radius:0 14px 14px 0; margin:.85rem 0;}
+.verdict-banner strong {font-family: Georgia, 'Times New Roman', serif; font-size:1.2rem; color:var(--navy);}
+
+.brief-card {border:1px solid rgba(23,34,56,.10); border-radius:16px; background:rgba(255,255,255,.50); padding:.9rem 1rem; min-height:100%;}
+.brief-card h4 {font-family: Georgia, 'Times New Roman', serif; color:var(--navy); margin:.1rem 0 .55rem 0;}
+
+.notice-box {border:1px dashed rgba(181,138,60,.48); border-radius:14px; padding:.75rem .9rem; background:rgba(181,138,60,.05); color:#5b584f; font-size:.88rem; line-height:1.55;}
+
+[data-testid="stMetric"] {background:rgba(255,253,247,.76); border:1px solid rgba(181,138,60,.20); padding:.72rem .8rem; border-radius:14px;}
+[data-testid="stMetricValue"] {font-family: Georgia, 'Times New Roman', serif; color:var(--navy); font-size:1.45rem;}
+
+.stButton > button, [data-testid="stFormSubmitButton"] > button {
+    border-radius:999px;
+    min-height:2.8rem;
+    border:1px solid rgba(181,138,60,.42);
+}
+.stButton > button[kind="primary"], [data-testid="stFormSubmitButton"] > button[kind="primary"] {
+    background:linear-gradient(135deg,#1a2942,#243a5b);
+    color:#fffaf0;
+    border-color:#243a5b;
+}
+.stTextInput input {border-radius:13px !important; background:rgba(255,253,247,.84) !important;}
+[data-testid="stExpander"] {border:1px solid rgba(181,138,60,.19); border-radius:14px; background:rgba(255,253,247,.50);}
+
+@media (max-width: 650px) {
+  .dike-title {font-size:2.2rem;}
+  .dike-hero {padding:1.3rem 1.15rem;}
+  .meta-grid {grid-template-columns:86px 1fr;}
+}
 </style>
 """,
     unsafe_allow_html=True,
 )
 
-st.markdown('<div class="eyebrow">Bias-aware decision agent</div>', unsafe_allow_html=True)
-st.markdown('<div class="hero-title">⚖️ Dike\'s Eye</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="hero-sub">평균 리뷰를 요약하는 대신, <b>왜 의견이 갈리는지</b>와 '
-    '<b>리뷰에 잘 남지 않는 이탈 신호</b>를 함께 보고 <b>내 조건에서 선택해도 되는지</b> 판단합니다.</div>',
+    """
+<div class="dike-hero">
+  <div class="dike-kicker">Dike · Goddess of Justice</div>
+  <div class="dike-title">Dike's Eye</div>
+  <div class="dike-sub">
+    다수의 평가를 그대로 따르지 않습니다. 상반된 진술과 누락되기 쉬운 Evidence를 함께 검토하고,
+    <b>귀하의 실제 조건에서 선택이 타당한지</b> 의견을 제시합니다.
+  </div>
+  <div class="seal-row">
+    <span class="seal-chip">⚖ 상반된 의견 검토</span>
+    <span class="seal-chip">◌ 누락 Evidence 탐색</span>
+    <span class="seal-chip">§ 사용자 조건 적용</span>
+  </div>
+  <div class="dike-motto">Audiatur et altera pars — 다른 쪽의 이야기 또한 들어야 한다.</div>
+</div>
+""",
     unsafe_allow_html=True,
 )
 
 with st.container(border=True):
-    st.markdown("**이렇게 물어보세요**")
-    st.caption("식당 · `토요일 7시 소개팅인데 성수 어니언 어때?`")
-    st.caption("상품 · `출퇴근용으로 소니 WH-1000XM6 사도 될까? 배터리랑 착용감이 중요해`")
+    st.markdown('<div class="section-kicker">Request for Review</div>', unsafe_allow_html=True)
+    st.markdown("#### 검토를 요청할 사안을 말씀해 주세요")
+    st.caption("대상만 적기보다 시간·목적·중요 조건까지 함께 말씀해 주시면 보다 정밀하게 검토할 수 있습니다.")
+    st.caption("예시 · `토요일 7시 소개팅인데 성수 어니언 어때?`")
+    st.caption("예시 · `출퇴근용으로 소니 WH-1000XM6 사도 될까? 배터리랑 착용감이 중요해`")
 
 DEFAULTS = {
     "intent": None,
@@ -133,11 +231,11 @@ for key, default in DEFAULTS.items():
 
 with st.form("question_form", clear_on_submit=True):
     question = st.text_input(
-        "질문",
-        placeholder="어디를 갈지, 무엇을 살지 상황까지 같이 말해 주세요.",
+        "검토 요청",
+        placeholder="검토받고 싶은 선택과 상황을 한 문장으로 입력해 주세요.",
         label_visibility="collapsed",
     )
-    submitted = st.form_submit_button("Dike's Eye에게 물어보기", type="primary", use_container_width=True)
+    submitted = st.form_submit_button("검토 접수", type="primary", use_container_width=True)
 
 if submitted and question.strip():
     try:
@@ -151,12 +249,14 @@ if intent:
     kind = intent.get("kind", "restaurant")
     kind_label = "식당" if kind == "restaurant" else "상품"
     st.divider()
-    st.markdown("### 1. 제가 이렇게 이해했어요")
+    st.markdown('<div class="section-kicker">Preliminary Review</div>', unsafe_allow_html=True)
+    st.markdown('<div class="opinion-title">접수 내용 확인</div>', unsafe_allow_html=True)
+    st.markdown('<div class="opinion-rule"></div>', unsafe_allow_html=True)
 
     with st.container(border=True):
-        c1, c2 = st.columns([2, 1])
+        c1, c2 = st.columns([2.4, 1])
         with c1:
-            st.markdown(f"**{kind_label} · {intent.get('target', '')}**")
+            st.markdown(f"**검토 대상 · {intent.get('target', '')}**")
             context_bits = [
                 intent.get("date_or_day", ""),
                 intent.get("time", ""),
@@ -164,14 +264,16 @@ if intent:
                 intent.get("preference", ""),
             ]
             context_text = " · ".join(x for x in context_bits if x)
-            st.caption(context_text or "추가 조건은 다음 단계에서 입력할 수 있어요.")
+            st.caption(f"분류: {kind_label}")
+            st.caption("확인된 조건: " + (context_text or "추가 조건 없음"))
         with c2:
             st.metric("질문 해석", f"{int(intent.get('parse_confidence', 0) * 100)}%")
 
     if kind == "restaurant" and not st.session_state.selected_target:
-        if st.button("NAVER에서 장소 확인", type="primary", use_container_width=True):
+        st.caption("식당 사안은 동명이인 또는 지점 오인 가능성을 줄이기 위해 장소 확인 절차를 거칩니다.")
+        if st.button("NAVER에서 검토 대상 확인", type="primary", use_container_width=True):
             try:
-                with st.spinner("장소를 확인하고 있어요..."):
+                with st.spinner("검토 대상을 확인하고 있습니다..."):
                     candidates, status = local_search(intent.get("target") or intent.get("original", ""), **naver_credentials())
                 st.session_state.search_status = status
                 st.session_state.candidates = candidates or [{
@@ -188,13 +290,9 @@ if intent:
                 f"{x.get('title','')} · {x.get('category','')} · {x.get('address','')}"
                 for x in st.session_state.candidates
             ]
-            idx = st.radio(
-                "이 장소가 맞나요?",
-                range(len(labels)),
-                format_func=lambda i: labels[i],
-            )
+            idx = st.radio("검토할 장소를 선택해 주세요.", range(len(labels)), format_func=lambda i: labels[i])
             chosen = st.session_state.candidates[idx]
-            if st.button("이 장소로 결정 분석", type="primary", use_container_width=True):
+            if st.button("이 장소를 검토 대상으로 확정", type="primary", use_container_width=True):
                 st.session_state.selected_target = {
                     "kind": "restaurant",
                     "name": chosen.get("title") or intent.get("target", ""),
@@ -202,46 +300,44 @@ if intent:
                 }
 
     if kind == "product" and not st.session_state.selected_target:
+        st.caption("상품은 모델명이 정확할수록 관련 Evidence와 다른 모델의 후기가 섞일 가능성이 낮아집니다.")
         with st.form("product_confirm_form"):
-            product_name = st.text_input(
-                "제품명",
-                key="target_edit",
-                help="모델명까지 정확할수록 Evidence 검색 정확도가 높아집니다.",
-            )
-            product_confirmed = st.form_submit_button("이 제품으로 결정 분석", type="primary", use_container_width=True)
+            product_name = st.text_input("제품명 / 모델명", key="target_edit")
+            product_confirmed = st.form_submit_button("이 제품을 검토 대상으로 확정", type="primary", use_container_width=True)
         if product_confirmed and product_name.strip():
-            st.session_state.selected_target = {
-                "kind": "product",
-                "name": product_name.strip(),
-                "meta": {},
-            }
+            st.session_state.selected_target = {"kind": "product", "name": product_name.strip(), "meta": {}}
 
 selected = st.session_state.selected_target
 
 if selected and not st.session_state.analysis:
     st.divider()
-    st.markdown("### 2. 내 조건만 확인할게요")
-    st.caption("여기 조건이 Dike's Eye의 핵심입니다. 같은 리뷰라도 누구에게는 장점이고 누구에게는 단점일 수 있습니다.")
+    st.markdown('<div class="section-kicker">Scope of Review</div>', unsafe_allow_html=True)
+    st.markdown('<div class="opinion-title">검토 범위와 조건</div>', unsafe_allow_html=True)
+    st.markdown('<div class="opinion-rule"></div>', unsafe_allow_html=True)
+    st.write(
+        "동일한 대상도 이용 시점·목적·중요 조건에 따라 결론이 달라질 수 있습니다. "
+        "아래 조건은 단순 참고정보가 아니라 Evidence의 우선순위를 결정하는 핵심 기준으로 사용됩니다."
+    )
 
     with st.form("context_form"):
         if selected["kind"] == "restaurant":
             a, b = st.columns(2)
             with a:
                 st.text_input("방문 날짜/요일", key="ctx_day", placeholder="예: 토요일")
-                st.text_input("시간", key="ctx_time", placeholder="예: 19:00")
+                st.text_input("예정 시간", key="ctx_time", placeholder="예: 19:00")
             with b:
-                st.text_input("목적", key="ctx_purpose", placeholder="예: 소개팅, 데이트")
-                st.text_input("중요한 조건", key="ctx_preference", placeholder="예: 조용함, 웨이팅")
+                st.text_input("방문 목적", key="ctx_purpose", placeholder="예: 소개팅, 데이트")
+                st.text_input("중요하게 보는 조건", key="ctx_preference", placeholder="예: 조용함, 웨이팅, 주차")
         else:
             a, b = st.columns(2)
             with a:
                 st.text_input("사용 목적", key="ctx_purpose", placeholder="예: 출퇴근, 업무, 게임")
-                st.text_input("중요한 조건", key="ctx_preference", placeholder="예: 배터리, 착용감, 무게")
+                st.text_input("중요하게 보는 조건", key="ctx_preference", placeholder="예: 배터리, 착용감, 무게")
             with b:
                 st.text_input("사용 시점/상황", key="ctx_day", placeholder="예: 매일, 주말 여행")
                 st.text_input("추가 조건", key="ctx_time", placeholder="예: 하루 3시간 사용")
 
-        analyze = st.form_submit_button("내 조건으로 판단하기", type="primary", use_container_width=True)
+        analyze = st.form_submit_button("Evidence 검토 시작", type="primary", use_container_width=True)
 
     if analyze:
         context = {
@@ -251,7 +347,7 @@ if selected and not st.session_state.analysis:
             "preference": st.session_state.ctx_preference,
         }
         try:
-            with st.spinner("보이는 리뷰와 놓치기 쉬운 이탈 신호를 함께 분석하고 있어요..."):
+            with st.spinner("찬성·반대 Evidence와 누락 가능성이 있는 신호를 함께 검토하고 있습니다..."):
                 analysis = run_decision(selected["name"], selected["kind"], context)
                 report = build_user_report(analysis, selected["name"], selected["kind"])
             st.session_state.analysis = analysis
@@ -264,47 +360,69 @@ if st.session_state.analysis and st.session_state.user_report:
     a = st.session_state.analysis
     r = st.session_state.user_report
     d = a["decision"]
+    verdict = d.get("verdict", "CONDITIONAL")
+    verdict_mark = {"GO": "권고", "CONDITIONAL": "조건부 권고", "AVOID": "권고 유보"}.get(verdict, "조건부 권고")
 
     st.divider()
-    st.markdown("### 3. Dike's Eye의 판단")
+    st.markdown('<div class="section-kicker">Written Opinion</div>', unsafe_allow_html=True)
+    st.markdown('<div class="opinion-title">DIKE 검토 의견서</div>', unsafe_allow_html=True)
+    st.markdown('<div class="opinion-rule"></div>', unsafe_allow_html=True)
 
-    verdict = d.get("verdict", "CONDITIONAL")
-    icon = {"GO": "✅", "CONDITIONAL": "🟡", "AVOID": "🔴"}.get(verdict, "🟡")
     with st.container(border=True):
-        st.markdown(f"## {icon} {r['headline']}")
-        st.write(r["summary"])
+        st.markdown(
+            f"""
+<div class="meta-grid">
+  <div class="meta-label">사안</div><div class="meta-value">{r.get('matter','')}</div>
+  <div class="meta-label">검토 범위</div><div class="meta-value">{r.get('scope','')}</div>
+  <div class="meta-label">검토 방식</div><div class="meta-value">공개 Evidence의 상반된 진술·조건 차이·누락 신호 종합</div>
+</div>
+<div class="verdict-banner"><strong>검토 결론 · {verdict_mark}</strong><br>{r.get('summary','')}</div>
+""",
+            unsafe_allow_html=True,
+        )
+
         m1, m2, m3 = st.columns(3)
         m1.metric("조건 적합도", f"{d.get('fit_score', 0)}/100")
         m2.metric("판단 신뢰도", f"{d.get('confidence', 0)}%")
         m3.metric("검토 Evidence", f"{len(a.get('rows', [])) + len(a.get('hidden_rows', []))}건")
-        st.caption(r["confidence_note"])
+        st.markdown(f"<div class='notice-box'>{r.get('confidence_note','')}</div>", unsafe_allow_html=True)
+
+    st.markdown("#### I. 확인된 사실")
+    for item in r.get("findings", []):
+        st.markdown(f"- {item}")
 
     c1, c2 = st.columns(2)
     with c1:
         with st.container(border=True):
-            st.markdown("#### 왜 이렇게 판단했나요?")
-            for item in r.get("why", []):
-                st.markdown(f"- {item}")
-    with c2:
-        with st.container(border=True):
-            st.markdown("#### 무엇을 조심해야 하나요?")
-            if r.get("risks"):
-                for item in r["risks"]:
+            st.markdown("#### II. 상반된 Evidence")
+            if r.get("conflicting_evidence"):
+                for item in r["conflicting_evidence"]:
                     st.markdown(f"- {item}")
             else:
-                st.write("현재 Evidence에서 강한 추가 위험은 확인되지 않았습니다.")
+                st.write("현재 검토 범위에서 강한 반대 Evidence는 두드러지지 않았습니다.")
+    with c2:
+        with st.container(border=True):
+            st.markdown("#### III. 리뷰에 나타나지 않을 수 있는 사실")
+            for item in r.get("missing_side", []):
+                st.markdown(f"- {item}")
 
     with st.container(border=True):
-        st.markdown("#### 그래서 어떻게 결정하면 되나요?")
-        for item in r.get("actions", []):
+        st.markdown("#### IV. 판단의 한계")
+        for item in r.get("limitations", []):
+            st.markdown(f"- {item}")
+
+    with st.container(border=True):
+        st.markdown("#### V. 권고 의견")
+        for item in r.get("recommendations", []):
             st.markdown(f"- **{item}**")
 
-    st.caption(r["method_note"])
+    st.caption(r.get("method_note", ""))
+    st.caption(r.get("closing_note", ""))
 
-    with st.expander("AI에게 결과를 더 자연스럽게 설명시키기"):
-        st.caption("점수와 추천 여부는 이미 확정되어 있습니다. AI는 분석 결과를 설명만 하며 판단을 바꾸지 않습니다.")
-        if st.button("AI 설명 생성", use_container_width=True):
-            with st.spinner("결과를 읽기 쉽게 정리하고 있어요..."):
+    with st.expander("⚖️ 검토 의견을 더 상세한 문장으로 정리"):
+        st.caption("AI는 이미 확정된 점수와 권고 여부를 변경하지 않습니다. 구조화된 검토 결과를 보다 읽기 쉬운 의견서 문장으로만 정리합니다.")
+        if st.button("상세 의견 작성", use_container_width=True):
+            with st.spinner("검토 기록을 정리하고 있습니다..."):
                 st.session_state.explanation = generate_explanation(
                     a,
                     api_key=secret("OPENAI_API_KEY"),
@@ -312,16 +430,21 @@ if st.session_state.analysis and st.session_state.user_report:
                 )
         if st.session_state.explanation:
             e = st.session_state.explanation
-            st.markdown(f"**{e.get('headline', '')}**")
+            st.markdown(f"### {e.get('headline', '')}")
             st.write(e.get("answer", ""))
+            st.markdown("**주요 검토 근거**")
             for reason in e.get("reasons", []):
                 st.markdown(f"- {reason}")
+            if e.get("risks"):
+                st.markdown("**유의사항**")
+                for risk in e.get("risks", []):
+                    st.markdown(f"- {risk}")
 
-    with st.expander("왜 이런 결론이 나왔는지 자세히 보기"):
-        st.markdown("#### 🎭 서로 다른 진실 — Rashomon")
+    with st.expander("🔎 Evidence 검토 기록 보기"):
+        st.markdown("##### A. 서로 다른 진술 — Rashomon")
         st.write(a.get("rashomon", {}).get("summary", "충돌 패턴이 충분하지 않습니다."))
 
-        st.markdown("#### 🧩 의견이 갈린 이유 — RCA")
+        st.markdown("##### B. 조건별 차이 — RCA")
         st.caption(a.get("rca", {}).get("interpretation", ""))
         rca_df = pd.DataFrame(a.get("rca", {}).get("cause_candidates", []))
         if not rca_df.empty:
@@ -330,34 +453,32 @@ if st.session_state.analysis and st.session_state.user_report:
         else:
             st.info("조건별 차이를 설명할 만큼 충분한 RCA 후보가 없습니다.")
 
-        st.markdown("#### 🕳️ 리뷰 밖의 신호 — Wald")
+        st.markdown("##### C. 누락 가능성 — Wald")
         st.caption(a.get("wald", {}).get("interpretation", ""))
-        signal_counts = a.get("wald", {}).get("signal_counts", {})
-        st.write(signal_counts or "강한 이탈 신호가 확인되지 않았습니다.")
+        st.write(a.get("wald", {}).get("signal_counts", {}) or "강한 이탈 신호가 확인되지 않았습니다.")
 
-        st.markdown("#### 🧮 Evidence 우선순위")
+        st.markdown("##### D. 우선 검토 Evidence")
         df = pd.DataFrame(a.get("rows", []))
         cols = [c for c in ["source", "title", "aspects", "contexts", "sentiment", "R", "F", "M", "priority"] if c in df.columns]
         if not df.empty:
             st.dataframe(df[cols].head(20), use_container_width=True, hide_index=True)
-        st.caption("R=최신성 · F=반복성/출처다양성 · M=내 조건과의 일치도. 우선순위 = 0.35R + 0.25F + 0.40M")
+        st.caption("R=최신성 · F=반복성/출처 다양성 · M=사용자 조건 일치도 · Evidence Priority = 0.35R + 0.25F + 0.40M")
 
-        with st.expander("개발/검증용 원시 지표"):
-            st.json({
-                "eda": a.get("eda", {}),
-                "rfm": a.get("rfm", {}),
-                "decision": a.get("decision", {}),
-            })
+        with st.expander("개발·검증용 원시 지표"):
+            st.json({"eda": a.get("eda", {}), "rfm": a.get("rfm", {}), "decision": a.get("decision", {})})
 
-    if st.button("새로운 질문하기", use_container_width=True):
+    if st.button("새 사안 검토하기", use_container_width=True):
         for key in list(DEFAULTS) + ["ctx_day", "ctx_time", "ctx_purpose", "ctx_preference", "target_edit"]:
             st.session_state.pop(key, None)
         st.rerun()
 
 if st.session_state.last_error:
-    st.error("처리 중 문제가 발생했습니다. 입력한 질문과 이전 분석 결과는 안전하게 유지됩니다.")
+    st.error("검토 처리 중 문제가 발생했습니다. 기존 입력 내용은 유지됩니다.")
     with st.expander("오류 정보"):
         st.code(st.session_state.last_error)
 
 st.divider()
-st.caption("Dike's Eye · 평균 리뷰가 아니라 내 조건에서의 선택을 돕는 Evidence 기반 Decision Agent")
+st.markdown(
+    "<div style='text-align:center;color:#86775a;font-size:.82rem;'>⚖ DIKE'S EYE · Evidence-based Decision Review</div>",
+    unsafe_allow_html=True,
+)
