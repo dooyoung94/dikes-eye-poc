@@ -5,6 +5,7 @@ from typing import Any
 
 ASPECT_LABELS = {
     "noise_atmosphere": "분위기·소음",
+    "comfort": "안락함·편안함",
     "wait_reservation": "웨이팅·예약",
     "service": "서비스·응대",
     "price_value": "가격·가성비",
@@ -45,9 +46,8 @@ def _top_conflict(analysis: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _top_rca(analysis: dict[str, Any]) -> dict[str, Any] | None:
-    candidates = analysis.get("rca", {}).get("cause_candidates", [])
-    aligned = [x for x in candidates if x.get("user_aligned")]
-    return (aligned or candidates or [None])[0]
+    candidates = analysis.get("rca", {}).get("main_candidates", [])
+    return candidates[0] if candidates else None
 
 
 def _top_wald(analysis: dict[str, Any]) -> tuple[str, int] | None:
@@ -117,9 +117,13 @@ def build_user_report(analysis: dict[str, Any], target: str, kind: str) -> dict[
             risks.append(
                 f"'{ctx}'에서는 {aspect} 부정 의견이 {ctx_neg}/{ctx_total}건({ctx_rate:.0f}%)으로, 전체 {base_neg}/{base_total}건({base_rate:.0f}%)보다 {abs(lift):.1f}%p 높았습니다."
             )
-        else:
+        elif str(rca.get("effect")) == "improves":
             strengths.append(
                 f"'{ctx}'에서는 {aspect} 부정 의견이 {ctx_neg}/{ctx_total}건({ctx_rate:.0f}%)으로, 전체 {base_neg}/{base_total}건({base_rate:.0f}%)보다 {abs(lift):.1f}%p 낮았습니다."
+            )
+        else:
+            findings.append(
+                f"'{ctx}'의 {aspect} 평가는 전체와 큰 차이가 없었습니다({ctx_rate:.0f}% vs {base_rate:.0f}%)."
             )
 
     if wald:
@@ -143,9 +147,9 @@ def build_user_report(analysis: dict[str, Any], target: str, kind: str) -> dict[
         elif verdict == "AVOID":
             recommendations.append("현재 조건에서는 불리한 신호가 꽤 강합니다. 같은 목적의 대체 식당을 한 곳 더 비교해보는 편이 좋습니다.")
         else:
-            recommendations.append("좋은 점은 분명하지만 조건에 따라 체감이 달라질 수 있습니다. 예약과 혼잡도를 확인한 뒤 결정하는 것이 좋습니다.")
+            recommendations.append("좋은 점은 분명하지만 조건에 따라 체감이 달라질 수 있습니다. 중요하게 본 조건의 최신 후기를 확인한 뒤 결정하는 것이 좋습니다.")
             if "소개팅" in str(context.get("purpose", "")) or "데이트" in str(context.get("purpose", "")):
-                recommendations.append("대화가 중요하다면 소음·좌석 간격 관련 최신 후기를 우선 확인하세요.")
+                recommendations.append("대화가 중요하다면 분위기·소음과 안락함·좌석 관련 최신 후기를 우선 확인하세요.")
     else:
         if verdict == "GO":
             recommendations.append("현재 용도에서는 반복적으로 확인되는 장점이 더 큽니다. 가격과 보증 조건이 맞으면 구매 후보로 충분합니다.")
