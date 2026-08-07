@@ -6,20 +6,56 @@ from math import exp
 from typing import Any
 
 ASPECT_RULES = {
-    "noise_atmosphere": ["조용", "시끄", "소음", "분위기", "대화"],
-    "wait_reservation": ["웨이팅", "대기", "예약", "줄"],
-    "service": ["친절", "불친절", "서비스", "직원"],
-    "price_value": ["가격", "비싸", "가성비", "저렴"],
-    "quality": ["맛", "품질", "훌륭", "별로"],
-    "convenience": ["주차", "접근", "거리"],
+    "noise_atmosphere": ["조용", "시끄", "소음", "분위기", "대화", "테이블"],
+    "wait_reservation": ["웨이팅", "대기", "예약", "줄", "입장"],
+    "service": ["친절", "불친절", "서비스", "직원", "응대", "AS", "고객센터"],
+    "price_value": ["가격", "비싸", "가성비", "저렴", "가격대", "할인"],
+    "quality_performance": [
+        "맛", "품질", "성능", "발열", "배터리", "속도", "화질", "음질", "노이즈캔슬링",
+        "카메라", "내구", "고장", "불량", "끊김", "연결", "충전",
+    ],
+    "convenience_fit": [
+        "주차", "접근", "거리", "휴대", "무게", "사이즈", "발볼", "착용", "편안", "그립",
+        "설치", "사용성", "조작",
+    ],
+    "design_experience": ["디자인", "색상", "마감", "예쁘", "감성", "촉감", "화면"],
 }
-POSITIVE = ["좋", "맛있", "만족", "친절", "조용", "편하", "추천", "괜찮", "예쁘", "쾌적"]
-NEGATIVE = ["나쁘", "별로", "불만", "불친절", "시끄", "불편", "비싸", "느리", "좁", "대기", "웨이팅", "혼잡"]
+
+POSITIVE = [
+    "좋", "맛있", "만족", "친절", "조용", "편하", "추천", "괜찮", "예쁘", "쾌적",
+    "빠르", "선명", "가볍", "오래가", "안정", "훌륭", "재구매", "재방문",
+]
+NEGATIVE = [
+    "나쁘", "별로", "불만", "불친절", "시끄", "불편", "비싸", "느리", "좁", "대기",
+    "웨이팅", "혼잡", "발열", "무겁", "끊김", "불량", "고장", "환불", "반품", "후회",
+    "짧", "실패", "취소", "못", "안됨",
+]
 CONTEXT_RULES = {
     "weekday": ["평일", "월요일", "화요일", "수요일", "목요일", "금요일"],
     "weekend": ["주말", "토요일", "일요일"],
     "lunch": ["점심", "런치", "12시", "13시", "낮"],
     "dinner": ["저녁", "디너", "18시", "19시", "20시", "21시", "밤"],
+    "commute": ["출퇴근", "통근", "지하철", "버스"],
+    "office": ["업무용", "사무용", "회사", "회의"],
+    "gaming": ["게임", "게이밍", "프레임"],
+    "travel": ["여행", "출장", "휴대"],
+    "exercise": ["러닝", "헬스", "운동", "등산"],
+}
+
+PURPOSE_PROXY = {
+    "소개팅": ["조용", "대화", "분위기", "예약", "웨이팅"],
+    "데이트": ["분위기", "조용", "대화", "예약", "웨이팅"],
+    "업무 미팅": ["조용", "대화", "접근", "예약"],
+    "친구 모임": ["분위기", "대기", "예약", "가격"],
+    "가족": ["주차", "친절", "대기", "예약"],
+    "회식": ["예약", "대기", "가격", "서비스"],
+    "혼밥": ["대기", "가격", "편하"],
+    "출퇴근": ["휴대", "무게", "배터리", "착용", "편안"],
+    "업무": ["배터리", "성능", "무게", "화면", "연결", "AS"],
+    "게임": ["성능", "발열", "화질", "배터리", "끊김"],
+    "여행": ["휴대", "무게", "배터리", "내구", "충전"],
+    "운동": ["착용", "편안", "무게", "내구", "배터리"],
+    "영상/사진": ["성능", "화질", "카메라", "배터리", "화면"],
 }
 
 
@@ -67,8 +103,8 @@ def _sentiment(text: str) -> int:
 def _match(text: str, context: dict[str, Any]) -> float:
     raw = " ".join(str(context.get(k, "")) for k in ("date_or_day", "time", "purpose", "preference"))
     tokens = [t for t in re.findall(r"[가-힣A-Za-z0-9]+", raw) if len(t) >= 2]
-    if "소개팅" in str(context.get("purpose", "")):
-        tokens.extend(["조용", "대화", "분위기", "예약", "웨이팅"])
+    purpose = str(context.get("purpose", ""))
+    tokens.extend(PURPOSE_PROXY.get(purpose, []))
     tokens = list(dict.fromkeys(tokens))
     if not tokens:
         return 0.35
@@ -84,5 +120,16 @@ def normalize_evidence(rows: list[dict[str, Any]], context: dict[str, Any]) -> l
         text = f"{title} {snippet}".strip()
         post_date = _parse_date(str(row.get("post_date") or ""))
         r, days = _recency(post_date)
-        out.append({**row, "evidence_id": f"E{idx:03d}", "post_date": post_date, "text": text, "aspects": _aspects(text), "contexts": _contexts(text), "sentiment": _sentiment(text), "R": r, "recency_days": days, "M": _match(text, context)})
+        out.append({
+            **row,
+            "evidence_id": f"E{idx:03d}",
+            "post_date": post_date,
+            "text": text,
+            "aspects": _aspects(text),
+            "contexts": _contexts(text),
+            "sentiment": _sentiment(text),
+            "R": r,
+            "recency_days": days,
+            "M": _match(text, context),
+        })
     return out
