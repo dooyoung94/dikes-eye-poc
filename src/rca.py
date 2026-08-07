@@ -13,6 +13,16 @@ PURPOSE_FLAGS = {
     "운동": {"exercise"},
 }
 
+PREFERENCE_ASPECT_RULES = {
+    "price_value": ["가격", "가성비", "비용", "저렴", "비싸", "할인", "금액"],
+    "noise_atmosphere": ["조용", "소음", "분위기", "대화", "시끄"],
+    "wait_reservation": ["웨이팅", "대기", "예약", "줄"],
+    "service": ["친절", "서비스", "응대", "직원", "AS"],
+    "quality_performance": ["맛", "품질", "성능", "배터리", "발열", "음질", "화질", "내구", "불량", "연결"],
+    "convenience_fit": ["주차", "접근", "거리", "휴대", "무게", "착용", "착용감", "편안", "사이즈"],
+    "design_experience": ["디자인", "색상", "마감", "감성", "화면"],
+}
+
 
 def _user_flags(context: dict[str, Any]) -> set[str]:
     flags: set[str] = set()
@@ -37,6 +47,15 @@ def _user_flags(context: dict[str, Any]) -> set[str]:
 
     flags.update(PURPOSE_FLAGS.get(purpose, set()))
     return flags
+
+
+def _preference_aspects(context: dict[str, Any]) -> set[str]:
+    raw = str(context.get("preference") or "").lower()
+    found: set[str] = set()
+    for aspect, keywords in PREFERENCE_ASPECT_RULES.items():
+        if any(keyword.lower() in raw for keyword in keywords):
+            found.add(aspect)
+    return found
 
 
 def _context_label(context: dict[str, Any], flags: set[str]) -> str:
@@ -92,7 +111,16 @@ def build_conflicts(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return conflicts
 
 
-def _candidate_from_subset(aspect: str, relevant: list[dict[str, Any]], subset: list[dict[str, Any]], label: str, *, user_aligned: bool, conflict_strength: float) -> dict[str, Any] | None:
+def _candidate_from_subset(
+    aspect: str,
+    relevant: list[dict[str, Any]],
+    subset: list[dict[str, Any]],
+    label: str,
+    *,
+    user_aligned: bool,
+    conflict_strength: float,
+    analysis_scope: str,
+) -> dict[str, Any] | None:
     if len(subset) < 3:
         return None
 
@@ -105,7 +133,6 @@ def _candidate_from_subset(aspect: str, relevant: list[dict[str, Any]], subset: 
     context_rate = len(negative) / len(subset)
     lift = context_rate - baseline_rate
 
-    # 사용자 조건 subset은 실제로 달라졌는지 보여주기 위해 작은 차이도 반환하되 confidence를 낮춘다.
     support_factor = min(1.0, len(subset) / 8.0)
     confidence = min(
         0.92,
@@ -138,23 +165,54 @@ def _candidate_from_subset(aspect: str, relevant: list[dict[str, Any]], subset: 
         "confidence": round(confidence, 4),
         "user_aligned": user_aligned,
         "claim_level": "observed_association",
+        "analysis_scope": analysis_scope,
     }
 
 
 def derive_rca(rows: list[dict[str, Any]], context: dict[str, Any]) -> dict[str, Any]:
     conflicts = build_conflicts(rows)
     flags = _user_flags(context)
+    preference_aspects = _preference_aspects(context)
     context_label = _context_label(context, flags)
     candidates: list[dict[str, Any]] = []
 
-    # 1) 가장 먼저 사용자 조건에 직접 맞는 subset을 전체 baseline과 비교한다.
     aspects = sorted({aspect for row in rows for aspect in row.get("aspects", ["other"])})
     conflict_map = {c["aspect"]: c for c in conflicts}
-    for aspect in aspects:
-        relevant = [r for r in rows if aspect in r.get("aspects", []) and int(r.get("sentiment", 0)) != 0]
+
+    # 1) 명시적 중요조건은 별도 subset으로 최우선 비교한다.
+    for aspect in sorted(preference_aspects):
+        relevant = [
+            r for r in rows
+            if aspect in r.get("aspects", []) and int(r.get("sentiment", 0)) != 0
+        ]
         if len(relevant) < 4:
             continue
+        subset = [
+            r for r in relevant
+            if bool(r.get("preference_aligned"))
+        ]
+        candidate = _candidate_from_subset(
+            aspect,
+            relevant,
+            subset,
+            str(context.get("preference") or context_label),
+            user_aligned=True,
+            conflict_strength=float(conflict_map.get(aspect, {}).get("conflict_strength", 0.0)),
+            analysis_scope="user_preference_subset",
+        )
+        if candidate:
+            candidates.append(candidate)
 
+    # 2) 나머지 시간/목적/조건 전체 subset을 비교한다.
+    for aspect in aspects:
+        if aspect in preference_aspects:
+            continue
+        relevant = [
+            r for r in rows
+            if aspect in r.get("aspects", []) and int(r.get("sentiment", 0)) != 0
+        ]
+        if len(relevant) < 4:
+            continue
         subset = [r for r in relevant if bool(r.get("context_aligned"))]
         candidate = _candidate_from_subset(
             aspect,
@@ -163,18 +221,21 @@ def derive_rca(rows: list[dict[str, Any]], context: dict[str, Any]) -> dict[str,
             context_label,
             user_aligned=True,
             conflict_strength=float(conflict_map.get(aspect, {}).get("conflict_strength", 0.0)),
+            analysis_scope="user_context_subset",
         )
         if candidate:
-            candidate["analysis_scope"] = "user_context_subset"
             candidates.append(candidate)
 
-    # 2) 보조 설명용으로 명시적 context 패턴도 유지하되 사용자 조건과 일치하는 것만 우선한다.
+    # 3) 명시적 context 패턴은 상세보기용 후보로만 유지한다.
     for conflict in conflicts:
         aspect = conflict["aspect"]
-        relevant = [r for r in rows if aspect in r.get("aspects", []) and int(r.get("sentiment", 0)) != 0]
+        relevant = [
+            r for r in rows
+            if aspect in r.get("aspects", []) and int(r.get("sentiment", 0)) != 0
+        ]
         explicit_contexts = sorted({ctx for row in relevant for ctx in row.get("contexts", [])})
         for ctx in explicit_contexts:
-            subset = [r for r in relevant if ctx in row.get("contexts", [])] if False else [r for r in relevant if ctx in r.get("contexts", [])]
+            subset = [r for r in relevant if ctx in r.get("contexts", [])]
             candidate = _candidate_from_subset(
                 aspect,
                 relevant,
@@ -182,14 +243,19 @@ def derive_rca(rows: list[dict[str, Any]], context: dict[str, Any]) -> dict[str,
                 ctx,
                 user_aligned=ctx in flags,
                 conflict_strength=float(conflict.get("conflict_strength", 0.0)),
+                analysis_scope="explicit_context",
             )
             if candidate:
-                candidate["analysis_scope"] = "explicit_context"
                 candidates.append(candidate)
 
+    scope_rank = {
+        "user_preference_subset": 3,
+        "user_context_subset": 2,
+        "explicit_context": 1,
+    }
     candidates.sort(
         key=lambda x: (
-            x.get("analysis_scope") == "user_context_subset",
+            scope_rank.get(str(x.get("analysis_scope")), 0),
             x["user_aligned"],
             abs(float(x["lift"])) * float(x["confidence"]),
             x["support_count"],
@@ -197,14 +263,35 @@ def derive_rca(rows: list[dict[str, Any]], context: dict[str, Any]) -> dict[str,
         reverse=True,
     )
 
-    aligned_worsening = [c for c in candidates if c["user_aligned"] and c["effect"] == "worsens"]
-    aligned_risk = max((min(1.0, abs(float(c["lift"])) * float(c["confidence"]) * 1.6) for c in aligned_worsening), default=0.0)
+    aligned_worsening = [
+        c for c in candidates
+        if c["user_aligned"]
+        and c["effect"] == "worsens"
+        and c.get("analysis_scope") in {"user_preference_subset", "user_context_subset"}
+    ]
+    aligned_risk = max(
+        (
+            min(1.0, abs(float(c["lift"])) * float(c["confidence"]) * 1.6)
+            for c in aligned_worsening
+        ),
+        default=0.0,
+    )
+
+    main_candidates = [
+        c for c in candidates
+        if c.get("analysis_scope") in {"user_preference_subset", "user_context_subset"}
+    ]
 
     return {
         "conflicts": conflicts,
         "cause_candidates": candidates[:24],
+        "main_candidates": main_candidates[:12],
+        "preference_aspects": sorted(preference_aspects),
         "user_context_flags": sorted(flags),
         "user_context_label": context_label,
         "aligned_risk": round(aligned_risk, 4),
-        "interpretation": "사용자 조건으로 회수·매칭된 Evidence subset을 전체 Evidence와 우선 비교합니다. 결과는 관찰된 차이이며 인과관계를 확정하지 않습니다.",
+        "interpretation": (
+            "중요조건은 해당 Aspect의 preference-aligned Evidence를 우선 비교하고, "
+            "시간·목적 조건은 context-aligned Evidence를 비교합니다. 명시되지 않은 context는 메인 판단에 사용하지 않습니다."
+        ),
     }
