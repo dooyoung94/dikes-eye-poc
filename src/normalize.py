@@ -9,14 +9,37 @@ ASPECT_RULES = {
     "noise_atmosphere": ["조용", "시끄", "소음", "분위기", "대화", "테이블"],
     "wait_reservation": ["웨이팅", "대기", "예약", "줄", "입장"],
     "service": ["친절", "불친절", "서비스", "직원", "응대", "AS", "고객센터"],
-    "price_value": ["가격", "비싸", "가성비", "저렴", "가격대", "할인"],
-    "quality_performance": ["맛", "품질", "성능", "발열", "배터리", "속도", "화질", "음질", "노이즈캔슬링", "카메라", "내구", "고장", "불량", "끊김", "연결", "충전"],
-    "convenience_fit": ["주차", "접근", "거리", "휴대", "무게", "사이즈", "발볼", "착용", "편안", "그립", "설치", "사용성", "조작"],
+    "price_value": ["가격", "비싸", "가성비", "저렴", "가격대", "할인", "비용", "금액"],
+    "quality_performance": [
+        "맛", "품질", "성능", "발열", "배터리", "속도", "화질", "음질", "노이즈캔슬링",
+        "카메라", "내구", "고장", "불량", "끊김", "연결", "충전",
+    ],
+    "convenience_fit": [
+        "주차", "접근", "거리", "휴대", "무게", "사이즈", "발볼", "착용", "편안", "그립",
+        "설치", "사용성", "조작",
+    ],
     "design_experience": ["디자인", "색상", "마감", "예쁘", "감성", "촉감", "화면"],
 }
 
-POSITIVE = ["좋", "맛있", "만족", "친절", "조용", "편하", "추천", "괜찮", "예쁘", "쾌적", "빠르", "선명", "가볍", "오래가", "안정", "훌륭", "재구매", "재방문"]
-NEGATIVE = ["나쁘", "별로", "불만", "불친절", "시끄", "불편", "비싸", "느리", "좁", "대기", "웨이팅", "혼잡", "발열", "무겁", "끊김", "불량", "고장", "환불", "반품", "후회", "짧", "실패", "취소", "못", "안됨"]
+PREFERENCE_ASPECT_RULES = {
+    "price_value": ["가격", "가성비", "비용", "저렴", "비싸", "할인", "금액"],
+    "noise_atmosphere": ["조용", "소음", "분위기", "대화", "시끄"],
+    "wait_reservation": ["웨이팅", "대기", "예약", "줄"],
+    "service": ["친절", "서비스", "응대", "직원", "AS"],
+    "quality_performance": ["맛", "품질", "성능", "배터리", "발열", "음질", "화질", "내구", "불량", "연결"],
+    "convenience_fit": ["주차", "접근", "거리", "휴대", "무게", "착용", "착용감", "편안", "사이즈"],
+    "design_experience": ["디자인", "색상", "마감", "감성", "화면"],
+}
+
+POSITIVE = [
+    "좋", "맛있", "만족", "친절", "조용", "편하", "추천", "괜찮", "예쁘", "쾌적",
+    "빠르", "선명", "가볍", "오래가", "안정", "훌륭", "재구매", "재방문", "저렴", "합리적",
+]
+NEGATIVE = [
+    "나쁘", "별로", "불만", "불친절", "시끄", "불편", "비싸", "느리", "좁", "대기",
+    "웨이팅", "혼잡", "발열", "무겁", "끊김", "불량", "고장", "환불", "반품", "후회",
+    "짧", "실패", "취소", "못", "안됨", "부담",
+]
 
 CONTEXT_RULES = {
     "weekday": ["평일", "월요일", "화요일", "수요일", "목요일", "금요일"],
@@ -97,6 +120,23 @@ def _sentiment(text: str) -> int:
     return 1 if pos > neg else -1 if neg > pos else 0
 
 
+def _split_preferences(context: dict[str, Any]) -> list[str]:
+    raw = str(context.get("preference") or "").strip()
+    if not raw:
+        return []
+    tokens = [x.strip() for x in re.split(r"[,/·]|\s+및\s+|\s+그리고\s+", raw) if x.strip()]
+    return list(dict.fromkeys(tokens))[:5]
+
+
+def _preference_aspects(context: dict[str, Any]) -> set[str]:
+    raw = str(context.get("preference") or "").lower()
+    found: set[str] = set()
+    for aspect, keywords in PREFERENCE_ASPECT_RULES.items():
+        if any(keyword.lower() in raw for keyword in keywords):
+            found.add(aspect)
+    return found
+
+
 def _user_context_flags(context: dict[str, Any]) -> set[str]:
     flags: set[str] = set()
     day = str(context.get("date_or_day") or "")
@@ -118,47 +158,79 @@ def _user_context_flags(context: dict[str, Any]) -> set[str]:
     return flags
 
 
-def _match(text: str, context: dict[str, Any], retrieval_scope: str, detected_contexts: list[str]) -> float:
+def _match(
+    text: str,
+    context: dict[str, Any],
+    retrieval_scope: str,
+    detected_contexts: list[str],
+    detected_aspects: list[str],
+) -> float:
     raw = " ".join(str(context.get(k, "")) for k in ("date_or_day", "time", "purpose", "preference"))
     tokens = [t for t in re.findall(r"[가-힣A-Za-z0-9]+", raw) if len(t) >= 2]
     purpose = str(context.get("purpose", ""))
     tokens.extend(PURPOSE_PROXY.get(purpose, []))
     tokens = list(dict.fromkeys(tokens))
 
-    lexical = 0.35 if not tokens else min(1.0, sum(1 for token in tokens if token.lower() in text.lower()) / max(3, min(8, len(tokens))))
+    lexical = 0.35 if not tokens else min(
+        1.0,
+        sum(1 for token in tokens if token.lower() in text.lower()) / max(3, min(8, len(tokens))),
+    )
     user_flags = _user_context_flags(context)
     explicit_overlap = len(user_flags.intersection(detected_contexts)) / max(1, len(user_flags)) if user_flags else 0.0
+    preference_overlap = bool(_preference_aspects(context).intersection(detected_aspects))
 
-    # 사용자 조건 질의로 직접 회수된 문서는 context relevance의 강한 신호로 사용하되 1.0으로 고정하지 않는다.
-    retrieval_bonus = 0.30 if retrieval_scope == "user_context" else 0.0
-    score = 0.65 * lexical + 0.25 * explicit_overlap + retrieval_bonus
+    retrieval_bonus = 0.30 if retrieval_scope == "user_context" else 0.24 if retrieval_scope == "preference" else 0.0
+    preference_bonus = 0.16 if preference_overlap else 0.0
+    score = 0.55 * lexical + 0.20 * explicit_overlap + retrieval_bonus + preference_bonus
     return round(min(1.0, score), 4)
 
 
 def normalize_evidence(rows: list[dict[str, Any]], context: dict[str, Any]) -> list[dict[str, Any]]:
     out = []
     user_flags = _user_context_flags(context)
+    preference_tokens = _split_preferences(context)
+    preference_aspects = _preference_aspects(context)
+
     for idx, row in enumerate(rows, start=1):
         title = str(row.get("title") or "").strip()
         snippet = str(row.get("snippet") or "").strip()
         text = f"{title} {snippet}".strip()
+        query = str(row.get("query") or "")
         post_date = _parse_date(str(row.get("post_date") or ""))
         r, days = _recency(post_date)
         detected_contexts = _contexts(text)
+        detected_aspects = _aspects(text)
         retrieval_scope = str(row.get("retrieval_scope") or "base")
-        context_aligned = retrieval_scope == "user_context" or bool(user_flags.intersection(detected_contexts))
+
+        preference_token_match = any(
+            token.lower() in text.lower() or token.lower() in query.lower()
+            for token in preference_tokens
+        )
+        preference_aspect_match = bool(preference_aspects.intersection(detected_aspects))
+        preference_aligned = bool(preference_tokens) and (
+            retrieval_scope == "preference" or preference_token_match or preference_aspect_match
+        )
+        temporal_or_purpose_aligned = bool(user_flags.intersection(detected_contexts))
+        context_aligned = (
+            retrieval_scope == "user_context"
+            or preference_aligned
+            or temporal_or_purpose_aligned
+        )
+
         out.append({
             **row,
             "evidence_id": f"E{idx:03d}",
             "post_date": post_date,
             "text": text,
-            "aspects": _aspects(text),
+            "aspects": detected_aspects,
             "contexts": detected_contexts,
             "sentiment": _sentiment(text),
             "R": r,
             "recency_days": days,
-            "M": _match(text, context, retrieval_scope, detected_contexts),
+            "M": _match(text, context, retrieval_scope, detected_contexts, detected_aspects),
             "context_aligned": context_aligned,
+            "preference_aligned": preference_aligned,
+            "preference_aspects": sorted(preference_aspects),
             "user_context_flags": sorted(user_flags),
         })
     return out
