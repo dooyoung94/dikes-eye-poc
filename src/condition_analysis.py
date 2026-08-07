@@ -66,8 +66,7 @@ def analyze_conditions(rows: list[dict[str, Any]], context: dict[str, Any]) -> l
 
         direct_rows = [
             row for row in aspect_rows
-            if bool(row.get("condition_direct"))
-            or str(row.get("retrieval_condition_aspect") or "") == aspect
+            if aspect in row.get("condition_direct_aspects", [])
         ]
         direct_positive = [row for row in direct_rows if int(row.get("sentiment", 0)) > 0]
         direct_negative = [row for row in direct_rows if int(row.get("sentiment", 0)) < 0]
@@ -86,14 +85,10 @@ def analyze_conditions(rows: list[dict[str, Any]], context: dict[str, Any]) -> l
 
         direction = str(cond.get("direction") or "prefer")
         if direction == "avoid":
-            desirability = negative_rate
-            # avoid 조건은 부정 신호가 많을수록 사용자의 회피 요구와 충돌하므로 낮은 적합도
             fit = 1.0 - negative_rate
         elif direction == "tolerate":
-            desirability = positive_rate
             fit = 0.5 + 0.5 * (positive_rate - negative_rate)
         else:
-            desirability = positive_rate
             fit = positive_rate
 
         support = min(1.0, total / 10.0)
@@ -116,12 +111,11 @@ def analyze_conditions(rows: list[dict[str, Any]], context: dict[str, Any]) -> l
             "situational_negative_rate": round(situational_negative_rate, 4),
             "situational_lift": round(situational_lift, 4),
             "fit": round(max(0.0, min(1.0, fit)), 4),
-            "desirability": round(max(0.0, min(1.0, desirability)), 4),
             "evidence_confidence": round(evidence_confidence, 4),
             "enough_evidence": total >= 3,
             "interpretation": (
-                "조건 자체 Evidence는 해당 aspect로 분류된 전체 Evidence를 사용하고, "
-                "조건 전용 검색은 coverage 보강용으로만 사용합니다."
+                "조건 자체 평가는 해당 aspect로 분류된 전체 Evidence를 사용합니다. "
+                "조건 전용 검색은 직접근거 coverage를 높이는 보조 신호입니다."
             ),
         })
 
