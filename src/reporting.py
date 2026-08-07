@@ -40,7 +40,7 @@ def _context_text(context: dict[str, Any]) -> str:
 
 
 def _top_conflict(analysis: dict[str, Any]) -> dict[str, Any] | None:
-    conflicts = analysis.get("rca", {}).get("conflicts", [])
+    conflicts = analysis.get("rashomon", {}).get("conflicts", [])
     return conflicts[0] if conflicts else None
 
 
@@ -50,56 +50,56 @@ def _top_rca(analysis: dict[str, Any]) -> dict[str, Any] | None:
     return (aligned or candidates or [None])[0]
 
 
-def _wald_signals(analysis: dict[str, Any]) -> list[dict[str, Any]]:
+def _top_wald(analysis: dict[str, Any]) -> tuple[str, int] | None:
     counts = analysis.get("wald", {}).get("signal_counts", {})
-    rows = [
-        {"key": key, "label": WALD_LABELS.get(key, key), "count": int(count)}
-        for key, count in counts.items()
-        if int(count) > 0
-    ]
-    return sorted(rows, key=lambda x: x["count"], reverse=True)
+    if not counts:
+        return None
+    category, count = max(counts.items(), key=lambda x: x[1])
+    return category, int(count)
 
 
 def build_user_report(analysis: dict[str, Any], target: str, kind: str) -> dict[str, Any]:
     decision = analysis.get("decision", {})
     context = analysis.get("context", {})
     verdict = str(decision.get("verdict", "CONDITIONAL"))
-    verdict_label = _verdict_label(verdict)
-    score = float(decision.get("fit_score", 50))
-    confidence = float(decision.get("confidence", 0))
+    label = _verdict_label(verdict)
+    score = decision.get("fit_score", 50)
+    confidence = decision.get("confidence", 0)
     context_text = _context_text(context)
-
-    visible_count = len(analysis.get("rows", []))
-    hidden_count = len(analysis.get("hidden_rows", []))
-    total_count = visible_count + hidden_count
 
     conflict = _top_conflict(analysis)
     rca = _top_rca(analysis)
-    wald_signals = _wald_signals(analysis)
+    wald = _top_wald(analysis)
+    positive_aspects = decision.get("components", {}).get("positive_aspects", [])
 
-    data_points: list[dict[str, Any]] = []
-    reasons: list[str] = []
-    cautions: list[str] = []
-    actions: list[str] = []
+    strengths: list[str] = []
+    findings: list[str] = []
+    risks: list[str] = []
+    missing_side: list[str] = []
+    limitations: list[str] = []
+    recommendations: list[str] = []
+
+    for item in positive_aspects[:3]:
+        aspect = ASPECT_LABELS.get(str(item.get("aspect")), str(item.get("aspect")))
+        pos = int(item.get("positive_count", 0))
+        neg = int(item.get("negative_count", 0))
+        rate = float(item.get("positive_rate", 0.0)) * 100
+        strengths.append(
+            f"{aspect}은 긍정 {pos}건 / 부정 {neg}건으로, 의견 Evidence 중 {rate:.0f}%가 긍정적이었습니다."
+        )
+
+    if not strengths:
+        strengths.append("현재 Evidence에서는 반복적으로 확인되는 뚜렷한 긍정 강점이 아직 충분하지 않습니다.")
 
     if conflict:
         aspect = ASPECT_LABELS.get(str(conflict.get("aspect")), str(conflict.get("aspect")))
-        pos = int(conflict.get("positive_count", 0))
-        neg = int(conflict.get("negative_count", 0))
-        opinion_total = max(1, int(conflict.get("opinion_count", pos + neg)))
-        pos_rate = round(pos / opinion_total * 100)
-        neg_rate = round(neg / opinion_total * 100)
-        data_points.append({
-            "type": "conflict",
-            "label": aspect,
-            "positive_count": pos,
-            "negative_count": neg,
-            "positive_rate": pos_rate,
-            "negative_rate": neg_rate,
-            "total": opinion_total,
-        })
-        reasons.append(
-            f"{aspect} 관련 의견 {opinion_total}건 중 긍정 {pos}건({pos_rate}%), 부정 {neg}건({neg_rate}%)으로 평가가 갈렸어요."
+        positive_count = int(conflict.get("positive_count", 0))
+        negative_count = int(conflict.get("negative_count", 0))
+        opinion_count = int(conflict.get("opinion_count", positive_count + negative_count))
+        positive_rate = float(conflict.get("positive_rate", 0.0)) * 100
+        negative_rate = float(conflict.get("negative_rate", 0.0)) * 100
+        findings.append(
+            f"{aspect}은 총 {opinion_count}건 중 긍정 {positive_count}건({positive_rate:.0f}%), 부정 {negative_count}건({negative_rate:.0f}%)으로 의견이 갈렸습니다."
         )
 
     if rca:
@@ -109,84 +109,77 @@ def build_user_report(analysis: dict[str, Any], target: str, kind: str) -> dict[
         base_neg = int(rca.get("baseline_negative_count", 0))
         ctx_total = int(rca.get("context_total_count", 0))
         ctx_neg = int(rca.get("context_negative_count", 0))
-        base_rate = round(float(rca.get("baseline_negative_rate", 0)) * 100)
-        ctx_rate = round(float(rca.get("context_negative_rate", 0)) * 100)
-        diff = round((float(rca.get("context_negative_rate", 0)) - float(rca.get("baseline_negative_rate", 0))) * 100, 1)
-        data_points.append({
-            "type": "context",
-            "label": f"{ctx} · {aspect}",
-            "baseline_total": base_total,
-            "baseline_negative": base_neg,
-            "baseline_rate": base_rate,
-            "context_total": ctx_total,
-            "context_negative": ctx_neg,
-            "context_rate": ctx_rate,
-            "difference_pp": diff,
-            "effect": rca.get("effect", ""),
-        })
-        direction = "높았어요" if diff > 0 else "낮았어요"
-        reasons.append(
-            f"{ctx} 조건에서는 {aspect} 부정 의견이 {ctx_neg}/{ctx_total}건({ctx_rate}%)으로, 전체 {base_neg}/{base_total}건({base_rate}%)보다 {abs(diff):.1f}%p {direction}."
-        )
-        cautions.append("이 차이는 현재 수집된 후기 안에서 관찰된 패턴이며, 원인 자체를 확정하는 값은 아니에요.")
+        base_rate = float(rca.get("baseline_negative_rate", 0.0)) * 100
+        ctx_rate = float(rca.get("context_negative_rate", 0.0)) * 100
+        lift = float(rca.get("lift", 0.0)) * 100
 
-    if wald_signals:
-        for signal in wald_signals[:3]:
-            data_points.append({"type": "wald", **signal})
-        top = wald_signals[0]
-        cautions.append(
-            f"일반 만족 후기 밖에서 '{top['label']}' 신호가 {top['count']}건 확인됐어요. 리뷰만 볼 때 놓치기 쉬운 경험이라 별도로 반영했어요."
-        )
-        cautions.append("이 건수는 실제 발생률이 아니라 검색된 위험 신호의 수예요. 전체 이용자 대비 비율로 해석하면 안 됩니다.")
+        if str(rca.get("effect")) == "worsens":
+            risks.append(
+                f"'{ctx}'에서는 {aspect} 부정 의견이 {ctx_neg}/{ctx_total}건({ctx_rate:.0f}%)으로, 전체 {base_neg}/{base_total}건({base_rate:.0f}%)보다 {abs(lift):.1f}%p 높았습니다."
+            )
+        else:
+            strengths.append(
+                f"'{ctx}'에서는 {aspect} 부정 의견이 {ctx_neg}/{ctx_total}건({ctx_rate:.0f}%)으로, 전체 {base_neg}/{base_total}건({base_rate:.0f}%)보다 {abs(lift):.1f}%p 낮았습니다."
+            )
 
-    if confidence < 55:
-        cautions.append(
-            f"판단 신뢰도는 {confidence:.0f}%예요. Evidence가 더 쌓이면 결론이 달라질 여지가 있습니다."
+    if wald:
+        category, count = wald
+        label_wald = WALD_LABELS.get(category, category)
+        missing_side.append(f"일반 리뷰 밖에서 '{label_wald}' 관련 신호가 {count}건 확인됐습니다.")
+        limitations.append(
+            f"'{label_wald}' {count}건은 실제 발생률이 아니라 검색된 이탈 신호의 건수입니다. 전체 사용자 대비 비율로 해석하면 안 됩니다."
         )
+    else:
+        missing_side.append("현재 검색 범위에서는 강한 이탈 신호가 두드러지지 않았습니다.")
+
+    if confidence < 45:
+        limitations.append("Evidence의 양·최신성·조건 일치도가 낮아 결론은 참고 수준으로 보는 것이 좋습니다.")
+    elif confidence < 60:
+        limitations.append("판단 가능한 Evidence는 확보됐지만, 추가 후기나 최신 정보가 들어오면 결론이 달라질 수 있습니다.")
 
     if kind == "restaurant":
         if verdict == "GO":
-            actions.append("현재 조건과 크게 충돌하는 반복 신호는 적어요. 예약 가능 여부만 확인하고 선택해도 괜찮습니다.")
+            recommendations.append("현재 조건에서는 긍정 강점이 위험보다 우세합니다. 예약 가능 여부만 확인하고 선택해도 괜찮습니다.")
         elif verdict == "AVOID":
-            actions.append("현재 목적과 맞물리는 부정 신호가 커 보여요. 같은 목적의 다른 식당을 한 곳 이상 같이 비교해보는 편이 좋습니다.")
+            recommendations.append("현재 조건에서는 불리한 신호가 꽤 강합니다. 같은 목적의 대체 식당을 한 곳 더 비교해보는 편이 좋습니다.")
         else:
-            actions.append("예약 가능 여부와 예상 웨이팅을 먼저 확인한 뒤 결정하세요.")
+            recommendations.append("좋은 점은 분명하지만 조건에 따라 체감이 달라질 수 있습니다. 예약과 혼잡도를 확인한 뒤 결정하는 것이 좋습니다.")
             if "소개팅" in str(context.get("purpose", "")) or "데이트" in str(context.get("purpose", "")):
-                actions.append("대화가 중요한 일정이라면 소음·좌석 간격 관련 최신 후기부터 확인하세요.")
+                recommendations.append("대화가 중요하다면 소음·좌석 간격 관련 최신 후기를 우선 확인하세요.")
     else:
         if verdict == "GO":
-            actions.append("현재 용도와 크게 충돌하는 반복 단점은 적어요. 가격과 보증 조건이 맞으면 구매 후보로 볼 수 있습니다.")
+            recommendations.append("현재 용도에서는 반복적으로 확인되는 장점이 더 큽니다. 가격과 보증 조건이 맞으면 구매 후보로 충분합니다.")
         elif verdict == "AVOID":
-            actions.append("핵심 사용 조건에서 불리한 Evidence가 커 보여요. 같은 예산대 대체 제품을 같이 비교해보세요.")
+            recommendations.append("현재 사용 목적과 핵심 조건에서 불리한 신호가 강합니다. 같은 예산대의 대체 제품을 함께 비교해보세요.")
         else:
-            actions.append("구매 전 핵심 조건과 직접 관련된 단점 후기와 반품·불량 신호를 한 번 더 확인하세요.")
+            recommendations.append("장점은 분명하지만 일부 단점이 용도와 맞물릴 수 있습니다. 핵심 조건에 해당하는 단점 후기만 한 번 더 확인하고 구매를 결정하세요.")
+
+    headline_context = f" · {context_text} 기준" if context_text else ""
+    headline = f"{label} · {score}/100{headline_context}"
 
     if verdict == "GO":
-        summary = f"{target}은 현재 조건에서는 꽤 잘 맞는 선택으로 보여요."
+        conclusion = f"{target}은 지금 조건에서는 장점이 단점보다 더 크게 보입니다."
     elif verdict == "AVOID":
-        summary = f"{target}은 지금 조건에서는 바로 선택하기보다 한 번 더 비교해보는 편이 좋아 보여요."
+        conclusion = f"{target}은 장점도 있지만, 지금 조건에서는 핵심 위험이 더 크게 보입니다."
     else:
-        summary = f"{target}은 조건만 잘 확인하면 선택할 수 있지만, 무조건 추천하기는 어려워요."
+        conclusion = f"{target}은 좋은 점이 분명하지만, 몇 가지 조건을 확인한 뒤 선택하는 편이 좋습니다."
 
     return {
         "document_title": "Dike's View",
-        "matter": target,
+        "matter": f"{target} 선택 분석",
         "scope": context_text or "추가 조건 없음",
-        "verdict_label": verdict_label,
-        "headline": f"{verdict_label} · {score:.0f}/100",
-        "summary": summary,
-        "visible_count": visible_count,
-        "hidden_count": hidden_count,
-        "total_count": total_count,
-        "score": score,
-        "confidence": confidence,
-        "data_points": data_points,
-        "reasons": reasons[:4],
-        "cautions": cautions[:4],
-        "actions": actions[:3],
-        "why": reasons[:3],
-        "risks": cautions[:3],
-        "recommendations": actions[:3],
-        "confidence_note": f"총 {total_count}건의 Evidence를 검토했고, 현재 판단 신뢰도는 {confidence:.0f}%입니다.",
-        "method_note": "최신성(R)·반복성(F)·내 조건과의 일치도(M)를 반영하고, 상반된 의견과 리뷰 밖 이탈 신호를 함께 비교했습니다.",
+        "headline": headline,
+        "summary": conclusion,
+        "strengths": strengths[:4],
+        "findings": findings[:3],
+        "conflicting_evidence": risks[:3],
+        "missing_side": missing_side[:2],
+        "limitations": limitations[:3],
+        "recommendations": recommendations[:3],
+        "why": (strengths + findings)[:4],
+        "risks": (risks + limitations)[:3],
+        "actions": recommendations[:3],
+        "confidence_note": f"판단 신뢰도 {confidence}% · 적합도 {score}/100",
+        "method_note": "긍정 강점, 의견 충돌, 사용자 조건별 차이, 리뷰 밖 이탈 신호를 함께 평가했습니다.",
+        "closing_note": "점수는 성공확률이나 절대 품질점수가 아니라 현재 Evidence와 사용자 조건 사이의 적합도입니다.",
     }
