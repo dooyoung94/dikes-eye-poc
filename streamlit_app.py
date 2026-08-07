@@ -10,7 +10,7 @@ from src.naver_client import collect_hidden_evidence, collect_visible_evidence, 
 from src.normalize import normalize_evidence
 from src.rca import derive_rca
 from src.rashomon import build_rashomon
-from src.reporting import build_user_report
+from src.reporting import ASPECT_LABELS, WALD_LABELS, build_user_report
 from src.rfm import build_rfm
 from src.scoring import score_decision
 from src.wald import analyze_wald
@@ -105,7 +105,6 @@ html, body, [class*="css"] {font-family:Pretendard,-apple-system,BlinkMacSystemF
 [data-testid="stAppViewContainer"] {background:linear-gradient(180deg,#faf9f6 0%,var(--bg) 100%); color:var(--ink);}
 [data-testid="stHeader"] {background:transparent;}
 .block-container {max-width:920px; padding-top:1.4rem; padding-bottom:5rem;}
-
 .hero {position:relative; overflow:hidden; background:linear-gradient(135deg,#242a35,#303947); color:white; border-radius:28px; padding:1.7rem 1.8rem; margin-bottom:1rem; box-shadow:0 18px 45px rgba(25,29,36,.12);}
 .hero:after {content:"⚖"; position:absolute; right:1rem; top:-1.2rem; font-size:9rem; opacity:.08;}
 .hero-eyebrow {font-size:.74rem; font-weight:800; letter-spacing:.16em; color:#dbc29b;}
@@ -113,24 +112,19 @@ html, body, [class*="css"] {font-family:Pretendard,-apple-system,BlinkMacSystemF
 .hero-sub {font-size:1rem; line-height:1.7; max-width:680px; color:#e4e7ec;}
 .hero-chips {display:flex;gap:.5rem;flex-wrap:wrap;margin-top:1rem;}
 .hero-chip {font-size:.78rem;padding:.35rem .7rem;border:1px solid rgba(255,255,255,.18);border-radius:999px;background:rgba(255,255,255,.06);}
-
 .section-title {font-size:1.28rem;font-weight:800;letter-spacing:-.03em;margin:.2rem 0 .25rem;}
 .section-sub {font-size:.9rem;color:var(--sub);margin-bottom:.8rem;}
-
 .result-hero {background:var(--card);border:1px solid var(--line);border-radius:22px;padding:1.2rem 1.25rem;box-shadow:0 10px 30px rgba(31,35,41,.06);}
 .result-label {font-size:.74rem;font-weight:800;color:var(--gold);letter-spacing:.12em;text-transform:uppercase;}
 .result-title {font-size:1.8rem;font-weight:850;letter-spacing:-.04em;margin:.25rem 0;}
 .result-summary {font-size:1rem;line-height:1.65;color:#515762;}
-
 .stat-card {background:var(--card);border:1px solid var(--line);border-radius:16px;padding:.85rem .9rem;min-height:100%;}
 .stat-label {font-size:.76rem;color:var(--sub);font-weight:700;}
 .stat-value {font-size:1.45rem;font-weight:850;margin-top:.15rem;}
 .stat-note {font-size:.78rem;color:var(--sub);margin-top:.1rem;}
-
-.insight-card {background:var(--card);border:1px solid var(--line);border-radius:18px;padding:1rem 1rem;margin:.7rem 0;box-shadow:0 6px 18px rgba(31,35,41,.035);}
-.insight-title {font-size:.9rem;font-weight:800;margin-bottom:.5rem;}
-.insight-copy {font-size:.92rem;line-height:1.6;color:#565d68;}
-
+.strength-card {background:linear-gradient(135deg,#f4faf6,#ffffff);border:1px solid #dcebe2;border-radius:18px;padding:1rem;margin:.65rem 0;}
+.strength-title {font-size:.84rem;font-weight:800;color:#44735d;margin-bottom:.25rem;}
+.strength-copy {font-size:.92rem;color:#4c5c53;line-height:1.6;}
 .bar-wrap {margin:.6rem 0 .8rem;}
 .bar-top {display:flex;justify-content:space-between;gap:1rem;font-size:.84rem;color:#555b65;margin-bottom:.28rem;}
 .bar-top strong {color:#2b3038;}
@@ -139,16 +133,12 @@ html, body, [class*="css"] {font-family:Pretendard,-apple-system,BlinkMacSystemF
 .bar-positive {background:#6f9c86;}
 .bar-negative {background:#ba7477;}
 .bar-gold {background:#b99a6d;}
-
 .signal-grid {display:grid;grid-template-columns:repeat(3,1fr);gap:.55rem;margin-top:.6rem;}
 .signal-card {border:1px solid var(--line);border-radius:14px;padding:.7rem .75rem;background:#fcfbf8;}
 .signal-label {font-size:.75rem;color:var(--sub);}
 .signal-value {font-size:1.15rem;font-weight:850;margin-top:.05rem;}
-
 .action-box {background:linear-gradient(135deg,#f4efe7,#faf8f4);border:1px solid #e4d6c2;border-radius:18px;padding:1rem 1.05rem;margin-top:.8rem;}
 .action-title {font-size:.85rem;color:#886a42;font-weight:800;margin-bottom:.45rem;}
-.action-item {font-size:.94rem;line-height:1.55;margin:.28rem 0;}
-
 .soft-note {font-size:.8rem;color:var(--sub);line-height:1.5;}
 [data-testid="stMetric"] {background:var(--card);border:1px solid var(--line);padding:.7rem .8rem;border-radius:15px;}
 [data-testid="stMetricValue"] {font-size:1.35rem;font-weight:850;}
@@ -164,10 +154,10 @@ html, body, [class*="css"] {font-family:Pretendard,-apple-system,BlinkMacSystemF
 st.markdown(
     """
 <div class="hero">
-  <div class="hero-eyebrow">DIKE'S EYE · EVIDENCE DECISION</div>
-  <div class="hero-title">⚖️ 내 조건에서, 어떤 선택이 더 타당할까?</div>
-  <div class="hero-sub">별점의 평균보다 <b>의견이 왜 갈렸는지</b>, 그리고 일반 리뷰에는 잘 남지 않는 <b>이탈 신호가 무엇인지</b> 함께 봅니다. 숫자로 근거를 보여드리고, 마지막 판단은 이해하기 쉽게 정리해드릴게요.</div>
-  <div class="hero-chips"><span class="hero-chip">Rashomon · 찬반 비교</span><span class="hero-chip">Wald · 놓친 신호</span><span class="hero-chip">Dike · 내 조건 판단</span></div>
+  <div class="hero-eyebrow">DIKE'S EYE · BALANCED DECISION</div>
+  <div class="hero-title">⚖️ 좋은 점과 위험을 함께 보고 판단합니다</div>
+  <div class="hero-sub">긍정 후기가 반복되는 강점은 제대로 반영하고, 의견이 갈리는 이유와 내 조건에서 실제로 문제가 되는 위험만 따로 봅니다. Evidence는 결론을 설명하는 근거이지, 결론 그 자체가 아닙니다.</div>
+  <div class="hero-chips"><span class="hero-chip">Strength · 반복 강점</span><span class="hero-chip">Rashomon · 찬반 비교</span><span class="hero-chip">Wald · 놓친 신호</span></div>
 </div>
 """,
     unsafe_allow_html=True,
@@ -254,7 +244,7 @@ if selected and not st.session_state.analysis:
     if analyze:
         context = {"date_or_day":st.session_state.ctx_day,"time":st.session_state.ctx_time,"purpose":st.session_state.ctx_purpose,"preference":st.session_state.ctx_preference}
         try:
-            with st.spinner("찬성·반대 후기와 리뷰 밖 신호를 비교하고 있어요..."):
+            with st.spinner("장점과 위험을 함께 비교하고 있어요..."):
                 analysis = run_decision(selected["name"], selected["kind"], context)
                 report = build_user_report(analysis, selected["name"], selected["kind"])
             st.session_state.analysis = analysis
@@ -267,8 +257,12 @@ if st.session_state.analysis and st.session_state.user_report:
     a = st.session_state.analysis
     r = st.session_state.user_report
     d = a["decision"]
-    st.divider()
+    comps = d.get("components", {})
+    total_count = len(a.get("rows", [])) + len(a.get("hidden_rows", []))
+    visible_count = len(a.get("rows", []))
+    hidden_count = len(a.get("hidden_rows", []))
 
+    st.divider()
     st.markdown(
         f"""
         <div class="result-hero">
@@ -282,61 +276,96 @@ if st.session_state.analysis and st.session_state.user_report:
 
     s1,s2,s3 = st.columns(3)
     with s1:
-        st.markdown(f"<div class='stat-card'><div class='stat-label'>조건 적합도</div><div class='stat-value'>{r.get('score',0):.0f}/100</div><div class='stat-note'>현재 조건 기준</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='stat-card'><div class='stat-label'>조건 적합도</div><div class='stat-value'>{d.get('fit_score',0):.0f}/100</div><div class='stat-note'>장점과 위험 종합</div></div>", unsafe_allow_html=True)
     with s2:
-        st.markdown(f"<div class='stat-card'><div class='stat-label'>판단 신뢰도</div><div class='stat-value'>{r.get('confidence',0):.0f}%</div><div class='stat-note'>Evidence 품질 반영</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='stat-card'><div class='stat-label'>판단 신뢰도</div><div class='stat-value'>{d.get('confidence',0):.0f}%</div><div class='stat-note'>Evidence 품질 반영</div></div>", unsafe_allow_html=True)
     with s3:
-        st.markdown(f"<div class='stat-card'><div class='stat-label'>검토 Evidence</div><div class='stat-value'>{r.get('total_count',0)}건</div><div class='stat-note'>리뷰 {r.get('visible_count',0)} + 이탈 {r.get('hidden_count',0)}</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='stat-card'><div class='stat-label'>검토 Evidence</div><div class='stat-value'>{total_count}건</div><div class='stat-note'>리뷰 {visible_count} + 이탈 {hidden_count}</div></div>", unsafe_allow_html=True)
 
-    conflict_points = [x for x in r.get("data_points",[]) if x.get("type") == "conflict"]
-    context_points = [x for x in r.get("data_points",[]) if x.get("type") == "context"]
-    wald_points = [x for x in r.get("data_points",[]) if x.get("type") == "wald"]
+    st.markdown('<div class="section-title" style="margin-top:1.3rem">먼저, 좋았던 점부터 볼게요</div>', unsafe_allow_html=True)
+    positive_aspects = comps.get("positive_aspects", [])
+    if positive_aspects:
+        for item in positive_aspects[:3]:
+            label = ASPECT_LABELS.get(str(item.get("aspect")), str(item.get("aspect")))
+            pos = int(item.get("positive_count", 0))
+            neg = int(item.get("negative_count", 0))
+            rate = float(item.get("positive_rate", 0.0)) * 100
+            with st.container(border=True):
+                st.markdown(f"**✨ {label}**")
+                bar_row("긍정", rate, f"{pos}건 · {rate:.0f}%", "positive")
+                st.caption(f"이 항목은 긍정 {pos}건 / 부정 {neg}건으로, 반복적으로 확인되는 강점으로 반영했어요.")
+    else:
+        st.info("현재 Evidence에서는 반복적으로 확인되는 뚜렷한 긍정 강점이 아직 충분하지 않습니다.")
 
-    st.markdown('<div class="section-title" style="margin-top:1.3rem">왜 이런 결과가 나왔을까요?</div>', unsafe_allow_html=True)
-
-    if conflict_points:
-        p = conflict_points[0]
+    conflicts = a.get("rca", {}).get("conflicts", [])
+    if conflicts:
+        p = conflicts[0]
+        label = ASPECT_LABELS.get(str(p.get("aspect")), str(p.get("aspect")))
+        pos_count = int(p.get("positive_count", 0))
+        neg_count = int(p.get("negative_count", 0))
+        pos_rate = float(p.get("positive_rate", 0.0)) * 100
+        neg_rate = float(p.get("negative_rate", 0.0)) * 100
         with st.container(border=True):
-            st.markdown(f"**🎭 {p['label']} — 의견이 갈린 지점**")
-            bar_row("긍정", p["positive_rate"], f"{p['positive_count']}건 · {p['positive_rate']}%", "positive")
-            bar_row("부정", p["negative_rate"], f"{p['negative_count']}건 · {p['negative_rate']}%", "negative")
-            st.caption(f"이 항목은 총 {p['total']}건의 의견 중 찬반이 함께 존재해서 평균값만으로 설명하기 어려워요.")
+            st.markdown(f"**🎭 {label} — 의견이 갈린 지점**")
+            bar_row("긍정", pos_rate, f"{pos_count}건 · {pos_rate:.0f}%", "positive")
+            bar_row("부정", neg_rate, f"{neg_count}건 · {neg_rate:.0f}%", "negative")
+            st.caption("이 항목은 좋다는 의견과 아쉽다는 의견이 함께 있어, 평균값만으로 판단하기 어려운 부분이에요.")
 
-    if context_points:
-        p = context_points[0]
+    rca_candidates = a.get("rca", {}).get("cause_candidates", [])
+    aligned = [x for x in rca_candidates if x.get("user_aligned")]
+    rca_point = (aligned or rca_candidates or [None])[0]
+    if rca_point:
+        label = ASPECT_LABELS.get(str(rca_point.get("aspect")), str(rca_point.get("aspect")))
+        ctx = str(rca_point.get("context") or "특정 조건")
+        base_total = int(rca_point.get("baseline_total_count", 0))
+        base_neg = int(rca_point.get("baseline_negative_count", 0))
+        ctx_total = int(rca_point.get("context_total_count", 0))
+        ctx_neg = int(rca_point.get("context_negative_count", 0))
+        base_rate = float(rca_point.get("baseline_negative_rate", 0.0)) * 100
+        ctx_rate = float(rca_point.get("context_negative_rate", 0.0)) * 100
+        diff = float(rca_point.get("lift", 0.0)) * 100
         with st.container(border=True):
-            st.markdown(f"**🔎 {p['label']} — 내 조건에서 달라진 부분**")
+            st.markdown(f"**🔎 {ctx} · {label} — 내 조건에서 달라진 부분**")
             c1,c2,c3 = st.columns(3)
-            c1.metric("전체 부정", f"{p['baseline_rate']}%", f"{p['baseline_negative']}/{p['baseline_total']}건")
-            c2.metric("해당 조건 부정", f"{p['context_rate']}%", f"{p['context_negative']}/{p['context_total']}건")
-            diff = p['difference_pp']
+            c1.metric("전체 부정", f"{base_rate:.0f}%", f"{base_neg}/{base_total}건")
+            c2.metric("해당 조건 부정", f"{ctx_rate:.0f}%", f"{ctx_neg}/{ctx_total}건")
             c3.metric("차이", f"{diff:+.1f}%p")
-            bar_row("전체", p["baseline_rate"], f"{p['baseline_rate']}%", "gold")
-            bar_row("내 조건", p["context_rate"], f"{p['context_rate']}%", "negative" if diff > 0 else "positive")
-            st.caption("이 값은 원인을 단정하는 통계가 아니라, 현재 수집된 후기 안에서 조건별 차이를 비교한 결과예요.")
+            bar_row("전체", base_rate, f"{base_rate:.0f}%", "gold")
+            bar_row("내 조건", ctx_rate, f"{ctx_rate:.0f}%", "negative" if diff > 0 else "positive")
+            if diff > 0:
+                st.caption("내 조건에서는 부정 의견이 전체보다 더 자주 나타났어요. 이 부분만 실제 선택에서 주의하면 됩니다.")
+            else:
+                st.caption("내 조건에서는 오히려 부정 의견이 전체보다 적었어요. 이 조건은 긍정적으로 반영할 수 있습니다.")
 
-    if wald_points:
+    signal_counts = a.get("wald", {}).get("signal_counts", {})
+    if signal_counts:
         with st.container(border=True):
             st.markdown("**🕳️ 리뷰만 보면 놓칠 수 있는 신호**")
-            cards = "".join([f"<div class='signal-card'><div class='signal-label'>{x['label']}</div><div class='signal-value'>{x['count']}건</div></div>" for x in wald_points[:3]])
+            top_signals = sorted(signal_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+            cards = "".join([
+                f"<div class='signal-card'><div class='signal-label'>{WALD_LABELS.get(k,k)}</div><div class='signal-value'>{v}건</div></div>"
+                for k,v in top_signals
+            ])
             st.markdown(f"<div class='signal-grid'>{cards}</div>", unsafe_allow_html=True)
-            st.caption("이 숫자는 실제 발생률이 아니라 검색된 이탈·실패 신호의 건수입니다. 일반 만족 리뷰와 별도로 봐야 해요.")
+            st.caption("이 숫자는 실제 발생률이 아니라 검색된 이탈·실패 신호의 건수예요. 그래서 위험 보정은 제한적으로만 적용합니다.")
 
-    if r.get("reasons"):
+    if r.get("strengths") or r.get("findings"):
         with st.container(border=True):
-            st.markdown("**📌 데이터에서 확인된 핵심**")
-            for item in r["reasons"]:
+            st.markdown("**📌 분석 결과를 한 번에 정리하면**")
+            for item in (r.get("strengths", [])[:2] + r.get("findings", [])[:2]):
                 st.markdown(f"- {item}")
 
-    if r.get("cautions"):
-        with st.expander("판단할 때 같이 봐야 하는 주의점"):
-            for item in r["cautions"]:
+    if r.get("conflicting_evidence") or r.get("limitations"):
+        with st.expander("같이 봐야 하는 주의점"):
+            for item in (r.get("conflicting_evidence", []) + r.get("limitations", [])):
                 st.markdown(f"- {item}")
 
     st.markdown('<div class="action-box"><div class="action-title">⚖️ Dike의 최종 제안</div>', unsafe_allow_html=True)
-    for item in r.get("actions",[]):
+    for item in r.get("recommendations", []):
         st.markdown(f"- **{item}**")
     st.markdown("</div>", unsafe_allow_html=True)
+
+    st.caption(r.get("closing_note", ""))
 
     with st.expander("AI가 이 결과를 조금 더 자연스럽게 설명하기"):
         st.caption("점수와 추천 여부는 이미 확정되어 있고, AI는 숫자와 근거를 읽기 쉽게 설명만 합니다.")
@@ -351,19 +380,25 @@ if st.session_state.analysis and st.session_state.user_report:
                 st.markdown(f"- {reason}")
 
     with st.expander("분석 근거 자세히 보기"):
-        st.markdown("##### Rashomon · 상반된 의견")
-        st.write(a.get("rashomon",{}).get("summary","충돌 패턴이 충분하지 않습니다."))
+        st.markdown("##### 점수 구성")
+        st.json({
+            "weighted_sentiment": comps.get("weighted_sentiment"),
+            "context_sentiment": comps.get("context_sentiment"),
+            "positive_strength": comps.get("positive_strength"),
+            "rca_risk": comps.get("rca_risk"),
+            "wald_risk": comps.get("wald_risk"),
+            "evidence_quality": comps.get("evidence_quality"),
+            "policy": d.get("policy", {}),
+        })
         st.markdown("##### RCA · 조건별 차이")
-        rca_df = pd.DataFrame(a.get("rca",{}).get("cause_candidates",[]))
+        rca_df = pd.DataFrame(rca_candidates)
         if not rca_df.empty:
             cols = [c for c in ["aspect","context","baseline_total_count","baseline_negative_count","baseline_negative_rate","context_total_count","context_negative_count","context_negative_rate","lift","confidence","user_aligned"] if c in rca_df.columns]
             st.dataframe(rca_df[cols], use_container_width=True, hide_index=True)
         else:
             st.info("조건별 차이를 설명할 만큼 충분한 후보가 없습니다.")
-        st.markdown("##### Wald · 리뷰 밖 신호")
-        st.write(a.get("wald",{}).get("signal_counts",{}) or "강한 이탈 신호가 확인되지 않았습니다.")
         st.markdown("##### 상위 Evidence")
-        df = pd.DataFrame(a.get("rows",[]))
+        df = pd.DataFrame(a.get("rows", []))
         cols = [c for c in ["source","title","aspects","contexts","sentiment","R","F","M","priority"] if c in df.columns]
         if not df.empty:
             st.dataframe(df[cols].head(20), use_container_width=True, hide_index=True)
@@ -379,4 +414,4 @@ if st.session_state.last_error:
         st.code(st.session_state.last_error)
 
 st.divider()
-st.caption("Dike's Eye · 평균이 아니라 내 조건에서의 선택을 돕는 Evidence 기반 Decision Agent")
+st.caption("Dike's Eye · 장점과 위험을 함께 보고 내 조건에서의 선택을 돕는 Decision Agent")
