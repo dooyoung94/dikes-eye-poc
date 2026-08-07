@@ -17,52 +17,54 @@ def fallback_explanation(analysis: dict[str, Any]) -> dict[str, Any]:
     rca_risk = decision.get("components", {}).get("rca_risk", 0)
     wald_risk = decision.get("components", {}).get("wald_risk", 0)
     kind = analysis.get("kind", "restaurant")
-    target = analysis.get("target", "대상")
 
     label = {
-        "GO": "추천",
-        "CONDITIONAL": "조건부 추천",
-        "AVOID": "비추천",
+        "GO": "권고",
+        "CONDITIONAL": "조건부 권고",
+        "AVOID": "권고 유보",
     }.get(verdict, verdict)
 
-    reasons = []
-    if confidence < 55:
-        reasons.append("Evidence의 양·최신성·사용자 조건 일치도가 충분하지 않아 판단 신뢰도가 제한적입니다.")
-    else:
-        reasons.append("Evidence의 양과 최신성, 사용자 조건 일치도를 함께 반영했습니다.")
+    findings = []
+    findings.append(
+        f"현재 확보된 공개 Evidence를 기준으로 검토한 결과, 본 건은 '{label}' 의견에 해당합니다. "
+        f"조건 적합도는 {score}/100, 판단 신뢰도는 {confidence}%입니다."
+    )
 
     if rca_risk > 0.35:
-        reasons.append("사용자 조건과 맞물리는 부정적 RCA 신호가 일부 확인됩니다.")
+        findings.append(
+            "사용자 조건과 직접 맞물리는 부정적 패턴이 일부 확인되어, 평균적인 만족도만으로 판단하기에는 주의가 필요합니다."
+        )
     else:
-        reasons.append("사용자 조건과 직접 맞물리는 강한 RCA 위험은 제한적으로 확인됩니다.")
+        findings.append(
+            "사용자 조건과 직접 맞물리는 강한 부정적 패턴은 현재 Evidence 범위에서 제한적으로 확인됩니다."
+        )
 
     if wald_risk > 0.35:
         if kind == "product":
-            reasons.append("반품·환불·고장·재판매 같은 일반 만족 리뷰 밖의 이탈 신호도 함께 고려했습니다.")
+            findings.append(
+                "일반 만족 후기 바깥에서 반품·불량·재판매 등 이탈 측 Evidence가 일부 확인되어 별도 위험요소로 고려했습니다."
+            )
         else:
-            reasons.append("예약 실패·웨이팅 포기 같은 일반 방문 리뷰 밖의 이탈 신호도 함께 고려했습니다.")
+            findings.append(
+                "일반 방문 후기 바깥에서 예약 실패·웨이팅 포기 등 선택 이전 이탈 신호가 일부 확인되어 별도 위험요소로 고려했습니다."
+            )
     else:
-        reasons.append("Wald 관점의 이탈 신호는 현재 Evidence에서 강하게 나타나지 않았습니다.")
-
-    if kind == "product":
-        risks = [
-            "Wald 신호는 실제 반품률이나 불량률이 아니라 놓치기 쉬운 이탈 Evidence입니다.",
-            "RCA는 사용조건별 관찰 연관성이며 인과관계를 확정하지 않습니다.",
-        ]
-    else:
-        risks = [
-            "Wald 신호는 실제 예약 실패율이나 방문 포기율이 아니라 선택편향 위험 신호입니다.",
-            "RCA는 조건별 관찰 연관성이며 인과관계를 확정하지 않습니다.",
-        ]
+        findings.append(
+            "현재 검색 범위에서는 일반 리뷰 바깥의 이탈 신호가 강하게 나타나지는 않았습니다."
+        )
 
     return {
-        "headline": f"{label} · {target} 적합도 {score}/100",
-        "answer": (
-            f"현재 입력한 조건 기준으로는 {label} 판단입니다. 판단 신뢰도는 {confidence}%이며, "
-            "점수는 LLM이 아니라 deterministic scoring engine이 계산했습니다."
-        ),
-        "reasons": reasons[:3],
-        "risks": risks,
+        "headline": f"검토 의견 · {label}",
+        "answer": " ".join(findings),
+        "reasons": [
+            "판단은 리뷰 평균이 아니라 사용자 조건과 맞는 Evidence의 최신성·반복성·일치도를 함께 반영했습니다.",
+            "상반된 의견은 별도로 분리해 검토했으며, 조건별 차이는 관찰 연관성 수준으로만 해석했습니다.",
+            "리뷰에 남기 어려운 이탈 측 Evidence도 별도 검색해 누락 가능성을 보완했습니다.",
+        ],
+        "risks": [
+            "RCA는 인과관계를 확정하는 분석이 아니라 현재 Evidence에서 관찰되는 조건별 차이입니다.",
+            "Wald 신호는 실제 실패율·반품률·예약 실패율을 의미하지 않으며 선택편향 가능성을 알리는 보조 신호입니다.",
+        ],
         "source": "fallback",
     }
 
@@ -76,11 +78,12 @@ def generate_explanation(
     if not api_key or OpenAI is None:
         return fallback_explanation(analysis)
 
+    decision = analysis.get("decision", {})
     payload = {
         "kind": analysis.get("kind", "restaurant"),
         "target": analysis.get("target", ""),
         "context": analysis.get("context", {}),
-        "decision": analysis.get("decision", {}),
+        "decision": decision,
         "eda": analysis.get("eda", {}),
         "rfm": analysis.get("rfm", {}),
         "rashomon": analysis.get("rashomon", {}),
@@ -93,20 +96,24 @@ def generate_explanation(
     }
 
     instruction = """
-너는 Dike's Eye의 설명 레이어다.
-절대로 verdict, fit_score, confidence, score components를 재계산하거나 변경하지 마라.
-주어진 deterministic 분석 결과만 설명하라.
-대상이 restaurant인지 product인지 반드시 구분해 그 도메인에 맞는 표현을 사용하라.
-RCA는 인과 확정이 아니라 관찰된 조건별 연관성으로 표현하라.
-Wald는 실제 실패율/반품률/불량률이 아니라 보이지 않는 이탈·선택편향 위험 신호로 표현하라.
-사용자가 입력한 목적과 중요한 조건을 결론의 중심에 놓아라.
-기술용어를 남발하지 말고 실제 선택에 도움이 되는 한국어로 간결하게 답하라.
-반드시 아래 JSON 형식으로만 출력하라.
+너는 Dike's Eye의 '검토 의견 작성 보조인'이다.
+말투는 한국어 법률보조인·조사관이 검토의견서를 작성하는 것처럼 차분하고 정중하며 구체적으로 작성한다.
+과장, 단정, 마케팅 표현은 사용하지 않는다.
+
+중요 원칙:
+1. verdict, fit_score, confidence, score components는 이미 deterministic engine에서 확정되었다. 절대로 다시 계산하거나 변경하지 않는다.
+2. RCA는 인과관계 확정이 아니라 '현재 Evidence에서 관찰된 조건별 연관성'으로만 표현한다.
+3. Wald는 실제 실패율/반품률/예약 실패율이 아니라 리뷰 밖에 존재할 수 있는 선택편향·이탈 위험 신호라고 명시한다.
+4. 근거가 부족하면 부족하다고 명시한다. 검색되지 않은 것을 존재하지 않는다고 표현하지 않는다.
+5. 사용자가 실제 결정을 내릴 수 있도록 결론뿐 아니라 반대 Evidence, 판단의 한계, 확인해야 할 후속사항까지 설명한다.
+6. '법률 자문', '판결', '유죄/무죄'처럼 실제 법률서비스로 오인될 표현은 사용하지 않는다. 검토·의견·Evidence·권고라는 용어를 사용한다.
+
+반드시 아래 JSON 형식만 출력한다.
 {
-  "headline": "한 줄 결론",
-  "answer": "2~4문장 설명",
-  "reasons": ["근거1", "근거2", "근거3"],
-  "risks": ["주의점1", "주의점2"]
+  "headline": "검토 의견 한 줄",
+  "answer": "4~7문장으로 상세 검토 의견",
+  "reasons": ["확인된 사실 또는 주요 근거1", "상반된 Evidence 또는 조건 차이2", "누락 가능성 또는 추가 근거3"],
+  "risks": ["판단의 한계1", "결정 전에 확인할 사항2"]
 }
 """.strip()
 
