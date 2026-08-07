@@ -15,12 +15,13 @@ PURPOSE_FLAGS = {
 
 PREFERENCE_ASPECT_RULES = {
     "price_value": ["가격", "가성비", "비용", "저렴", "비싸", "할인", "금액"],
-    "noise_atmosphere": ["조용", "소음", "분위기", "대화", "시끄"],
+    "noise_atmosphere": ["조용", "소음", "분위기", "대화", "시끄", "감성"],
+    "comfort": ["안락", "안락함", "편안", "편안함", "아늑", "아늑함", "쾌적", "쾌적함", "좌석"],
     "wait_reservation": ["웨이팅", "대기", "예약", "줄"],
     "service": ["친절", "서비스", "응대", "직원", "AS"],
     "quality_performance": ["맛", "품질", "성능", "배터리", "발열", "음질", "화질", "내구", "불량", "연결"],
-    "convenience_fit": ["주차", "접근", "거리", "휴대", "무게", "착용", "착용감", "편안", "사이즈"],
-    "design_experience": ["디자인", "색상", "마감", "감성", "화면"],
+    "convenience_fit": ["주차", "접근", "거리", "휴대", "무게", "착용", "착용감", "사이즈"],
+    "design_experience": ["디자인", "색상", "마감", "화면"],
 }
 
 
@@ -264,10 +265,7 @@ def derive_rca(rows: list[dict[str, Any]], context: dict[str, Any]) -> dict[str,
         reverse=True,
     )
 
-    aligned_worsening = [
-        c for c in all_candidates
-        if c["effect"] == "worsens"
-    ]
+    aligned_worsening = [c for c in all_candidates if c["effect"] == "worsens"]
     aligned_risk = max(
         (
             min(1.0, abs(float(c["lift"])) * float(c["confidence"]) * 1.6)
