@@ -6,6 +6,8 @@ import streamlit as st
 from src.eda import build_eda
 from src.naver_client import collect_visible_evidence, local_search
 from src.normalize import normalize_evidence
+from src.rca import derive_rca
+from src.rashomon import build_rashomon
 from src.rfm import build_rfm
 
 st.set_page_config(page_title="Dike's Eye POC", page_icon="⚖️", layout="centered")
@@ -39,9 +41,9 @@ st.markdown("""
 
 st.markdown("""
 <div class="hero">
-  <div class="soft">Bias-aware Review Decision Agent · POC Step 3</div>
+  <div class="soft">Bias-aware Review Decision Agent · POC Step 4</div>
   <h1>⚖️ Dike's Eye</h1>
-  <div>질문 → 식당 확인 → NAVER Evidence → EDA → RFM까지 검증합니다.</div>
+  <div>질문 → 식당 확인 → NAVER Evidence → EDA → RFM → Rashomon → RCA까지 검증합니다.</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -110,7 +112,7 @@ if st.session_state.query:
 
 if st.session_state.selected_place:
     st.divider()
-    st.subheader("📊 EDA / RFM 분석")
+    st.subheader("📊 Evidence 분석")
     place = st.session_state.selected_place
 
     c1, c2 = st.columns(2)
@@ -121,22 +123,33 @@ if st.session_state.selected_place:
         purpose = st.text_input("목적", placeholder="예: 소개팅")
         preference = st.text_input("중요 조건", placeholder="예: 조용함, 웨이팅")
 
-    if st.button("Evidence 수집 + EDA/RFM 실행", type="primary", use_container_width=True):
+    if st.button("Evidence 분석 실행", type="primary", use_container_width=True):
         context = {"date_or_day": day, "time": time, "purpose": purpose, "preference": preference}
-        with st.spinner("NAVER Blog/Cafe/Web Evidence 수집 중..."):
+        with st.spinner("NAVER Evidence 수집 및 분석 중..."):
             raw = collect_visible_evidence(place.get("title", st.session_state.query), **naver_credentials())
-        normalized = normalize_evidence(raw, context)
-        rfm_rows, rfm_summary = build_rfm(normalized)
-        eda = build_eda(rfm_rows)
-        st.session_state.analysis = {"raw": raw, "rows": rfm_rows, "rfm": rfm_summary, "eda": eda, "context": context}
+            normalized = normalize_evidence(raw, context)
+            rfm_rows, rfm_summary = build_rfm(normalized)
+            eda = build_eda(rfm_rows)
+            rca = derive_rca(rfm_rows, context)
+            rashomon = build_rashomon(rca)
+        st.session_state.analysis = {
+            "raw": raw,
+            "rows": rfm_rows,
+            "rfm": rfm_summary,
+            "eda": eda,
+            "context": context,
+            "rca": rca,
+            "rashomon": rashomon,
+        }
 
 if st.session_state.analysis:
     a = st.session_state.analysis
-    st.success(f"EDA/RFM 정상 · Evidence {len(a['rows'])}건")
-    m1, m2, m3 = st.columns(3)
+    st.success(f"Step 4 정상 · Evidence {len(a['rows'])}건")
+    m1, m2, m3, m4 = st.columns(4)
     m1.metric("Evidence", len(a["rows"]))
     m2.metric("평균 Recency", a["rfm"].get("avg_R", 0))
     m3.metric("평균 Match", a["rfm"].get("avg_M", 0))
+    m4.metric("충돌 Aspect", a["rashomon"].get("conflict_count", 0))
 
     with st.expander("📊 EDA 결과", expanded=True):
         st.json(a["eda"])
@@ -145,7 +158,21 @@ if st.session_state.analysis:
         df = pd.DataFrame(a["rows"])
         cols = [c for c in ["evidence_id", "source", "title", "aspects", "contexts", "sentiment", "R", "F", "M", "priority"] if c in df.columns]
         st.dataframe(df[cols].head(30) if cols else df.head(30), use_container_width=True, hide_index=True)
-        st.caption("RFM은 여기서 Recency / Frequency / Match 기반 Evidence 우선순위 휴리스틱으로 사용합니다.")
+        st.caption("RFM은 Recency / Frequency / Match 기반 Evidence 우선순위 휴리스틱입니다.")
+
+    with st.expander("🎭 Rashomon · 서로 다른 진실", expanded=True):
+        st.write(a["rashomon"].get("summary", ""))
+        st.json(a["rashomon"])
+
+    with st.expander("🧩 RCA · 왜 의견이 갈렸나", expanded=True):
+        st.caption(a["rca"].get("interpretation", ""))
+        st.write("사용자 조건 flags:", a["rca"].get("user_context_flags", []))
+        st.write("사용자 조건 정렬 위험도:", a["rca"].get("aligned_risk", 0))
+        candidates_df = pd.DataFrame(a["rca"].get("cause_candidates", []))
+        if candidates_df.empty:
+            st.info("현재 Evidence에서는 조건별 차이를 설명할 만큼 충분한 RCA 후보가 없습니다.")
+        else:
+            st.dataframe(candidates_df, use_container_width=True, hide_index=True)
 
 st.divider()
-st.caption("POC Step 3 · NAVER Evidence + EDA + RFM / OpenAI · RCA · Wald · 최종 추천점수 미사용")
+st.caption("POC Step 4 · NAVER Evidence + EDA + RFM + Rashomon + RCA / OpenAI · Wald · 최종 추천점수 미사용")
