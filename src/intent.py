@@ -24,23 +24,29 @@ PURPOSE_RULES = {
     "회식": ["회식"],
     "업무 미팅": ["업무 미팅", "미팅", "회의"],
     "혼밥": ["혼밥", "혼자"],
-    "출퇴근": ["출퇴근", "통근"],
+    "출퇴근": ["출퇴근용", "출퇴근", "통근용", "통근"],
     "업무": ["업무용", "사무용", "회사에서", "업무"],
     "게임": ["게임용", "게이밍", "게임"],
     "여행": ["여행용", "여행"],
-    "운동": ["운동용", "러닝", "헬스", "운동"],
+    "운동": ["운동용", "러닝용", "러닝", "헬스", "운동"],
     "영상/사진": ["영상 편집", "영상편집", "사진 편집", "사진촬영", "촬영용"],
 }
 
 PREFERENCE_WORDS = [
     "조용", "분위기", "대화", "웨이팅", "예약", "주차", "친절", "가격", "가성비",
-    "맛", "배터리", "발열", "성능", "휴대", "무게", "착용", "편안", "발볼", "사이즈",
+    "맛", "배터리", "발열", "성능", "휴대", "무게", "착용", "착용감", "편안", "발볼", "사이즈",
     "음질", "노이즈캔슬링", "화질", "내구", "불량", "AS", "연결", "디자인",
 ]
 
-QUESTION_ENDINGS = [
-    "어때", "어때?", "괜찮아", "괜찮을까", "좋아", "좋을까", "추천해줘", "추천해",
-    "살까", "사도 돼", "사도돼", "가도 돼", "가도돼", "어떤가", "어떤가요",
+QUESTION_PATTERNS = [
+    r"\b사도\s*(?:될까|돼|되나|괜찮을까)\b.*$",
+    r"\b살까\b.*$",
+    r"\b구매해도\s*(?:될까|돼|되나)\b.*$",
+    r"\b가도\s*(?:될까|돼|되나)\b.*$",
+    r"\b어때\??.*$",
+    r"\b괜찮아\??.*$",
+    r"\b괜찮을까\??.*$",
+    r"\b추천해(?:줘)?\??.*$",
 ]
 
 
@@ -97,12 +103,30 @@ def _detect_kind(text: str) -> str:
     return "restaurant"
 
 
-def _strip_context(text: str, *, kind: str, day: str, time: str, purpose: str) -> str:
-    target = text.strip()
+def _remove_preference_clause(text: str) -> str:
+    # "배터리랑 착용감이 중요해", "주차가 중요하고 조용했으면" 같은 후행 조건 제거.
+    markers = ["중요해", "중요하고", "중요한데", "중요한", "신경써", "신경 쓰", "우선이야"]
+    for marker in markers:
+        idx = text.find(marker)
+        if idx >= 0:
+            left = text[:idx]
+            # marker 앞 마지막 문장/쉼표 단위부터 제거
+            cut = max(left.rfind("?"), left.rfind("."), left.rfind(","))
+            if cut >= 0:
+                return text[:cut]
+            # 문장 부호가 없으면 preference keyword가 시작되는 지점을 찾아 제거
+            positions = [text.find(word) for word in PREFERENCE_WORDS if text.find(word) >= 0]
+            if positions:
+                return text[:min(positions)]
+    return text
+
+
+def _strip_context(text: str, *, kind: str, day: str, purpose: str) -> str:
+    target = _remove_preference_clause(text.strip())
+
     if day:
         target = target.replace(day, " ")
 
-    # 원문 시간 표현 제거
     target = re.sub(r"(?:(?:오전|오후)\s*)?\d{1,2}(?::\d{2})?\s*시", " ", target)
     target = re.sub(r"(?<!\d)(?:[01]?\d|2[0-3]):[0-5]\d(?!\d)", " ", target)
 
@@ -110,11 +134,14 @@ def _strip_context(text: str, *, kind: str, day: str, time: str, purpose: str) -
         for word in PURPOSE_RULES.get(purpose, []):
             target = target.replace(word, " ")
 
-    for ending in QUESTION_ENDINGS:
-        target = target.replace(ending, " ")
+    if kind == "product":
+        target = re.sub(r"(?:용)?으로", " ", target)
+
+    for pattern in QUESTION_PATTERNS:
+        target = re.sub(pattern, " ", target)
 
     cleanup = [
-        "인데", "으로", "로", "에서", "기준", "괜찮은지", "알려줘", "좀", "나한테",
+        "인데", "에서", "기준", "괜찮은지", "알려줘", "좀", "나한테", "어떤가", "어떤가요",
     ]
     if kind == "product":
         cleanup += ["구매", "제품", "상품"]
@@ -132,7 +159,7 @@ def parse_intent(text: str) -> dict[str, Any]:
     time = _extract_time(original)
     purpose = _first_purpose(original)
     preference = _extract_preferences(original)
-    target = _strip_context(original, kind=kind, day=day, time=time, purpose=purpose)
+    target = _strip_context(original, kind=kind, day=day, purpose=purpose)
 
     confidence = 0.55
     if target and target != original:
