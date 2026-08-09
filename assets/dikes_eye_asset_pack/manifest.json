@@ -1,0 +1,21 @@
+{
+  "colors": {
+    "hero_navy": "#0F1E2D",
+    "deep_navy": "#142739",
+    "primary_gold": "#D4AF37",
+    "champagne_gold": "#F2D99C",
+    "ivory": "#FFF3EA",
+    "parchment": "#F3E8D5",
+    "marble_gray": "#E6E1D5",
+    "text_dark": "#1A1A1A",
+    "text_muted": "#686868"
+  },
+  "icons": [
+    "consensus",
+    "condition",
+    "rashomon",
+    "wald",
+    "balance",
+    "solomon"
+  ]
+}

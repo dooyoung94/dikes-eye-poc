@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 760">
+<rect x="8" y="8" width="1584" height="744" rx="52" fill="none" stroke="#D4AF37" stroke-width="8"/>
+<rect x="25" y="25" width="1550" height="710" rx="42" fill="none" stroke="#F2D99C" stroke-opacity=".65" stroke-width="2"/>
+<path d="M0 100h78l30-34h220M1600 100h-78l-30-34h-220M0 660h78l30 34h220M1600 660h-78l-30 34h-220" fill="none" stroke="#D4AF37" stroke-width="6"/>
+<path d="M742 12h116l26 25-26 25H742l-26-25zM742 748h116l26-25-26-25H742l-26 25z" fill="#0F1E2D" stroke="#D4AF37" stroke-width="4"/>
+</svg>

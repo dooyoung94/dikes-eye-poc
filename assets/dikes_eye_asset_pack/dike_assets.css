@@ -1,0 +1,32 @@
+
+/* Dike's Eye asset integration */
+:root{
+  --dike-navy:#0F1E2D; --dike-deep:#142739; --dike-gold:#D4AF37;
+  --dike-champagne:#F2D99C; --dike-ivory:#FFF3EA; --dike-parchment:#F3E8D5;
+}
+[data-testid="stAppViewContainer"]{
+  background-image:url("assets/background/agora_bg_desktop.webp");
+  background-size:cover; background-position:center top; background-attachment:fixed;
+}
+.hero{
+  background:linear-gradient(145deg,var(--dike-navy),var(--dike-deep));
+  position:relative;
+}
+.hero::after{
+  content:""; position:absolute; inset:0; pointer-events:none;
+  background:url("assets/hero/hero_frame.svg") center/100% 100% no-repeat;
+}
+.dike-card{
+  background:
+    linear-gradient(rgba(255,253,247,.96),rgba(255,253,247,.96)),
+    url("assets/cards/parchment_card_texture.webp") center/cover;
+  border:1px solid rgba(180,145,80,.45);
+  box-shadow:0 12px 32px rgba(55,42,25,.12);
+}
+.dike-section-icon{width:56px;height:56px}
+@media(max-width:700px){
+  [data-testid="stAppViewContainer"]{
+    background-image:url("assets/background/agora_bg_center.webp");
+    background-size:auto 100vh; background-position:center top;
+  }
+}
