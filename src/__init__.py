@@ -1,15 +1,10 @@
-"""Dike's Eye POC analysis modules.
-
-This package also applies a very small Streamlit UI patch so the two
-conversation blocks render as real cards over the Agora background without
-requiring risky edits to the large streamlit_app.py entrypoint.
-"""
+"""Dike's Eye POC analysis modules and lightweight Streamlit UI patch."""
 
 from __future__ import annotations
 
 try:
     import streamlit as _st
-except Exception:  # pragma: no cover - non-Streamlit tooling/tests
+except Exception:  # pragma: no cover
     _st = None
 
 
@@ -23,12 +18,58 @@ if _st is not None and not getattr(_st, "_dike_card_patch_installed", False):
 
     _CARD_STYLE = r"""
     <style>
-    /*
-      Conversation cards
-      ------------------
-      The photographic Agora remains a page background only. All explanatory
-      text, examples and parsed-condition text live on an opaque parchment card.
-    */
+    /* Hero: keep the scale and gold frame, remove the oversized side laurels. */
+    .hero-laurel {
+        display: none !important;
+    }
+
+    /* Every bordered analysis block is a real parchment card, not text over Agora. */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        background: linear-gradient(145deg, #fffaf0 0%, #f8ead2 100%) !important;
+        border: 1px solid rgba(184, 139, 58, .72) !important;
+        border-radius: 18px !important;
+        padding: .9rem 1rem !important;
+        box-shadow: 0 12px 30px rgba(59, 42, 22, .14) !important;
+        backdrop-filter: none !important;
+        color: #2b251d !important;
+    }
+
+    div[data-testid="stVerticalBlockBorderWrapper"] p,
+    div[data-testid="stVerticalBlockBorderWrapper"] strong,
+    div[data-testid="stVerticalBlockBorderWrapper"] span,
+    div[data-testid="stVerticalBlockBorderWrapper"] label,
+    div[data-testid="stVerticalBlockBorderWrapper"] .bar > div {
+        color: #2b251d !important;
+        opacity: 1 !important;
+        text-shadow: none !important;
+    }
+
+    /* NAVER place confirmation: candidate names and radio labels get their own card. */
+    div[data-testid="stRadio"] {
+        background: linear-gradient(145deg, #fffaf0 0%, #f8ead2 100%) !important;
+        border: 1px solid rgba(184, 139, 58, .72) !important;
+        border-radius: 16px !important;
+        padding: .82rem 1rem !important;
+        margin: .45rem 0 .75rem !important;
+        box-shadow: 0 10px 24px rgba(59, 42, 22, .13) !important;
+        color: #2b251d !important;
+    }
+
+    div[data-testid="stRadio"] label,
+    div[data-testid="stRadio"] p,
+    div[data-testid="stRadio"] span,
+    div[data-testid="stRadio"] [role="radiogroup"] {
+        color: #2b251d !important;
+        opacity: 1 !important;
+        text-shadow: none !important;
+    }
+
+    [data-testid="stExpander"] {
+        background: #fffdf7 !important;
+        border-color: rgba(184, 139, 58, .48) !important;
+    }
+
+    /* Top conversation cards. */
     .st-key-question_panel,
     .st-key-intent_panel {
         position: relative;
@@ -56,7 +97,7 @@ if _st is not None and not getattr(_st, "_dike_card_patch_installed", False):
             linear-gradient(120deg, transparent 0 47%, rgba(155,121,62,.08) 50%, transparent 53%);
     }
 
-    /* Neutralize the transparent Streamlit border wrapper inside our keyed cards. */
+    /* Avoid double cards inside the two keyed conversation cards. */
     .st-key-question_panel [data-testid="stVerticalBlockBorderWrapper"],
     .st-key-intent_panel [data-testid="stVerticalBlockBorderWrapper"] {
         background: transparent !important;
@@ -65,13 +106,12 @@ if _st is not None and not getattr(_st, "_dike_card_patch_installed", False):
         padding: 0 !important;
     }
 
-    /* The form belongs to the question card, so don't draw a second giant panel. */
     .st-key-question_panel [data-testid="stForm"] {
         margin-top: .45rem !important;
         padding: .72rem !important;
         border: 1px solid rgba(190, 147, 70, .48) !important;
         border-radius: 15px !important;
-        background: rgba(255, 253, 248, .82) !important;
+        background: rgba(255, 253, 248, .86) !important;
         box-shadow: none !important;
     }
 
@@ -98,7 +138,7 @@ if _st is not None and not getattr(_st, "_dike_card_patch_installed", False):
     }
 
     .st-key-question_panel [data-testid="stCaptionContainer"] {
-        background: rgba(255, 250, 239, .62) !important;
+        background: rgba(255, 250, 239, .64) !important;
         border-left: 2px solid rgba(184, 139, 58, .42) !important;
         border-radius: 0 8px 8px 0 !important;
         padding: .25rem .48rem !important;
@@ -126,8 +166,15 @@ if _st is not None and not getattr(_st, "_dike_card_patch_installed", False):
             border-radius: 17px !important;
             box-shadow: 0 10px 24px rgba(59,42,22,.16) !important;
         }
+
         .st-key-question_panel [data-testid="stForm"] {
             padding: .55rem !important;
+        }
+
+        div[data-testid="stRadio"],
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            padding: .7rem .72rem !important;
+            border-radius: 14px !important;
         }
     }
     </style>
