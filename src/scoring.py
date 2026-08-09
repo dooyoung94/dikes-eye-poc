@@ -63,6 +63,7 @@ def score_decision(
     rfm_summary: dict[str, Any],
     rca: dict[str, Any],
     wald: dict[str, Any],
+    consensus: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     n = len(visible_rows)
     source_count = len(eda.get("source_counts", {}))
@@ -70,16 +71,26 @@ def score_decision(
     positive_strength, positive_aspects = _positive_strength(eda)
     condition_signed, condition_coverage, condition_count = _condition_score(rca)
 
+    consensus = consensus or {}
+    consensus_n = int(consensus.get("sample_count", 0))
+    if consensus_n >= 5:
+        consensus_signed = max(-1.0, min(1.0, float(consensus.get("weighted_sentiment", 0.0))))
+        consensus_quality = min(1.0, consensus_n / 20.0)
+    else:
+        consensus_signed = overall_sentiment
+        consensus_quality = min(0.45, n / 20.0)
+
     count_quality = min(1.0, n / 35.0)
     source_quality = min(1.0, source_count / 3.0)
     recency_quality = float(eda.get("avg_recency", 0.0))
     match_quality = min(1.0, float(rfm_summary.get("avg_M", 0.0)) * 2.0)
     evidence_quality = (
-        0.28 * count_quality
-        + 0.18 * source_quality
-        + 0.22 * recency_quality
-        + 0.17 * match_quality
+        0.25 * count_quality
+        + 0.17 * source_quality
+        + 0.20 * recency_quality
+        + 0.15 * match_quality
         + 0.15 * condition_coverage
+        + 0.08 * consensus_quality
     )
 
     unresolved = sum(
@@ -94,17 +105,19 @@ def score_decision(
         + 0.40 * float(wald.get("severe_signal", 0.0))
     )
 
+    # conditional-v5: 전체 여론은 배경 판단, 사용자 조건은 핵심 판단으로 사용한다.
     raw = (
         50.0
-        + 18.0 * overall_sentiment
-        + 28.0 * condition_signed
+        + 13.0 * overall_sentiment
+        + 12.0 * consensus_signed
+        + 29.0 * condition_signed
         + 8.0 * positive_strength
         - 10.0 * rca_risk
         - 7.0 * wald_risk
     )
     raw = max(0.0, min(100.0, raw))
 
-    shrink = 0.62 + 0.38 * confidence
+    shrink = 0.64 + 0.36 * confidence
     score = 50.0 + (raw - 50.0) * shrink
 
     caps: list[str] = []
@@ -145,7 +158,11 @@ def score_decision(
         "confidence": confidence_pct,
         "components": {
             "weighted_sentiment": round(overall_sentiment, 4),
+            "consensus_sentiment": round(consensus_signed, 4),
+            "consensus_score": round(50.0 + 50.0 * consensus_signed, 1),
+            "consensus_sample_count": consensus_n,
             "condition_fit": round(condition_signed, 4),
+            "condition_score": round(50.0 + 50.0 * condition_signed, 1),
             "condition_coverage": round(condition_coverage, 4),
             "condition_count": condition_count,
             "positive_strength": round(positive_strength, 4),
@@ -157,11 +174,11 @@ def score_decision(
         },
         "score_caps": caps,
         "policy": {
-            "version": "conditional-v4",
+            "version": "conditional-v5-consensus-balance",
             "go_threshold": "score>=70 AND confidence>=56 AND n>=12 AND no high aligned risk",
             "principle": (
-                "user conditions are scored independently by aspect, weighted by stated importance and evidence confidence; "
-                "situational shifts and Wald signals then adjust the result"
+                "general-review consensus is treated as background truth; user-stated conditions remain the dominant axis; "
+                "situational RCA and Wald risks adjust the final balance"
             ),
         },
     }
